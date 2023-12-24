@@ -21,9 +21,11 @@ for year in range(1920, 2020):
 
 def test_msgpack_packb(benchmark):
     benchmark.group = "non_str_keys"
+    benchmark.extra_info["lib"] = "msgpack"
     benchmark(msgpack.packb, data)
 
 
 def test_ormsgpack_packb(benchmark):
     benchmark.group = "non_str_keys"
+    benchmark.extra_info["lib"] = "ormsgpack"
     benchmark(ormsgpack.packb, data, option=ormsgpack.OPT_NON_STR_KEYS)
