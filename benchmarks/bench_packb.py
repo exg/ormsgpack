@@ -1,28 +1,14 @@
-import os.path
-
-import msgpack
 import pytest
 
-import ormsgpack
+from .generator import LIBRARIES, Generator
 
-DATASETS = ("canada", "citm_catalog", "github", "twitter")
-DATASETS_DATA = {
-    dataset: msgpack.unpackb(
-        open(
-            os.path.join(os.path.dirname(__file__), "samples", f"{dataset}.mpack"), "rb"
-        ).read()
-    )
-    for dataset in DATASETS
-}
+EXPERIMENTS = Generator().experiments()
 
 
-@pytest.mark.parametrize("dataset", DATASETS)
-def test_msgpack_packb(benchmark, dataset):
-    benchmark.group = f"{dataset} packb"
-    benchmark(msgpack.packb, DATASETS_DATA[dataset])
-
-
-@pytest.mark.parametrize("dataset", DATASETS)
-def test_ormsgpack_packb(benchmark, dataset):
-    benchmark.group = f"{dataset} packb"
-    benchmark(ormsgpack.packb, DATASETS_DATA[dataset])
+@pytest.mark.parametrize("library", LIBRARIES, ids=lambda x: x.name)
+@pytest.mark.parametrize("experiment", EXPERIMENTS, ids=lambda x: x.name)
+def test_packb(benchmark, library, experiment):
+    benchmark.group = f"{experiment.name} serialization"
+    benchmark.extra_info["lib"] = library.name
+    output = benchmark(library.packb, experiment.data)
+    benchmark.extra_info["output_size"] = len(output)
