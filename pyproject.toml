@@ -42,7 +42,7 @@ dev = [
     "pendulum",
     "pydantic",
     "pytest",
-    "pytest-benchmark",
+    "pytest-codspeed",
     "python-dateutil",
     "pytz",
     "ruff",
@@ -68,7 +68,6 @@ requires = ["maturin>=1.0,<2.0"]
 python-source = "python"
 
 [tool.mypy]
-exclude = "benchmarks"
 strict = true
 
 [[tool.mypy.overrides]]
