@@ -30,10 +30,14 @@ def default(__obj):
 
 
 def test_dataclass_msgpack(benchmark):
-    benchmark.group = "dataclass"
-    benchmark(msgpack.packb, objects_as_dataclass, default=default)
+    benchmark.group = "dataclass serialization"
+    benchmark.extra_info["lib"] = "msgpack"
+    output = benchmark(msgpack.packb, objects_as_dataclass, default=default)
+    benchmark.extra_info["output_size"] = len(output)
 
 
 def test_dataclass_ormsgpack(benchmark):
-    benchmark.group = "dataclass"
-    benchmark(ormsgpack.packb, objects_as_dataclass)
+    benchmark.group = "dataclass serialization"
+    benchmark.extra_info["lib"] = "ormsgpack"
+    output = benchmark(ormsgpack.packb, objects_as_dataclass)
+    benchmark.extra_info["output_size"] = len(output)
