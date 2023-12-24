@@ -4,15 +4,13 @@ import pytest
 
 import ormsgpack
 
-DATA_TYPES = {
-    "int32": numpy.random.randint(((2**31) - 1), size=(100000, 100), dtype=numpy.int32),
-    "float64": numpy.random.random(size=(50000, 100)),
-    "npbool": numpy.random.choice((True, False), size=(100000, 200)),
-    "int8": numpy.random.randint(((2**7) - 1), size=(100000, 100), dtype=numpy.int8),
-    "uint8": numpy.random.randint(((2**8) - 1), size=(100000, 100), dtype=numpy.uint8),
-}
+RNG = numpy.random.default_rng()
 
-PARAMETERS = tuple(DATA_TYPES.keys())
+DATA = (
+    RNG.integers(2**31, size=(100000, 100), dtype=numpy.int32),
+    RNG.random(size=(50000, 100)),
+    RNG.choice((True, False), size=(100000, 200)),
+)
 
 
 def default(__obj):
@@ -20,15 +18,17 @@ def default(__obj):
         return __obj.tolist()
 
 
-@pytest.mark.parametrize("data_type", PARAMETERS)
-def test_numpy_msgpack(benchmark, data_type):
-    benchmark.group = f"numpy {data_type}"
-    data = DATA_TYPES[data_type]
-    benchmark(msgpack.packb, data, default=default)
+@pytest.mark.parametrize("data", DATA)
+def test_numpy_msgpack(benchmark, data):
+    benchmark.group = f"numpy {data.dtype} serialization"
+    benchmark.extra_info["lib"] = "msgpack"
+    output = benchmark(msgpack.packb, data, default=default)
+    benchmark.extra_info["output_size"] = len(output)
 
 
-@pytest.mark.parametrize("data_type", PARAMETERS)
-def test_numpy_ormsgpack(benchmark, data_type):
-    benchmark.group = f"numpy {data_type}"
-    data = DATA_TYPES[data_type]
-    benchmark(ormsgpack.packb, data, option=ormsgpack.OPT_SERIALIZE_NUMPY)
+@pytest.mark.parametrize("data", DATA)
+def test_numpy_ormsgpack(benchmark, data):
+    benchmark.group = f"numpy {data.dtype} serialization"
+    benchmark.extra_info["lib"] = "ormsgpack"
+    output = benchmark(ormsgpack.packb, data, option=ormsgpack.OPT_SERIALIZE_NUMPY)
+    benchmark.extra_info["output_size"] = len(output)
