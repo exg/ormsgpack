@@ -29,12 +29,16 @@ def default(__obj):
 
 
 def test_pydantic_msgpack(benchmark):
-    benchmark.group = "pydantic"
-    benchmark(msgpack.packb, objects_as_pydantic, default=default)
+    benchmark.group = "pydantic serialization"
+    benchmark.extra_info["lib"] = "msgpack"
+    output = benchmark(msgpack.packb, objects_as_pydantic, default=default)
+    benchmark.extra_info["output_size"] = len(output)
 
 
 def test_pydantic_ormsgpack(benchmark):
-    benchmark.group = "pydantic"
-    benchmark(
+    benchmark.group = "pydantic serialization"
+    benchmark.extra_info["lib"] = "ormsgpack"
+    output = benchmark(
         ormsgpack.packb, objects_as_pydantic, option=ormsgpack.OPT_SERIALIZE_PYDANTIC
     )
+    benchmark.extra_info["output_size"] = len(output)

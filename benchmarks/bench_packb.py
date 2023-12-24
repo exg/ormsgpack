@@ -18,11 +18,15 @@ DATASETS_DATA = {
 
 @pytest.mark.parametrize("dataset", DATASETS)
 def test_msgpack_packb(benchmark, dataset):
-    benchmark.group = f"{dataset} packb"
-    benchmark(msgpack.packb, DATASETS_DATA[dataset])
+    benchmark.group = f"{dataset} serialization"
+    benchmark.extra_info["lib"] = "msgpack"
+    output = benchmark(msgpack.packb, DATASETS_DATA[dataset])
+    benchmark.extra_info["output_size"] = len(output)
 
 
 @pytest.mark.parametrize("dataset", DATASETS)
 def test_ormsgpack_packb(benchmark, dataset):
-    benchmark.group = f"{dataset} packb"
-    benchmark(ormsgpack.packb, DATASETS_DATA[dataset])
+    benchmark.group = f"{dataset} serialization"
+    benchmark.extra_info["lib"] = "ormsgpack"
+    output = benchmark(ormsgpack.packb, DATASETS_DATA[dataset])
+    benchmark.extra_info["output_size"] = len(output)
