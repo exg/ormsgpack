@@ -61,6 +61,9 @@ ignore_missing_imports = true
 line-length = 88
 src = ["python"]
 target-version = "py39"
+extend-exclude = [
+  "doc"
+]
 
 [tool.ruff.lint]
 select = [
