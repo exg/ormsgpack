@@ -33,6 +33,9 @@ strip = true
 [tool.ruff]
 line-length = 88
 target-version = "py38"
+extend-exclude = [
+  "doc"
+]
 
 [tool.ruff.lint]
 select = [
