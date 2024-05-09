@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
 use crate::deserialize::KeyMap;
-use crate::ext::create_ext_type;
+use crate::ext::Ext;
 use pyo3::ffi::*;
+use pyo3::Python;
 use std::ffi::CStr;
 use std::ptr::null_mut;
 use std::sync::OnceLock;
@@ -104,12 +105,13 @@ pub struct State {
 impl State {
     #[cold]
     pub fn new() -> Self {
+        let ext_type = Python::attach(|py| py.get_type::<Ext>().as_ptr().cast::<PyTypeObject>());
         unsafe {
             Self {
                 numpy_types: OnceLock::new(),
                 dataclass_field_type: load_type(c"dataclasses", c"_FIELD"),
                 enum_type: load_type(c"enum", c"EnumMeta"),
-                ext_type: create_ext_type(),
+                ext_type: ext_type,
                 uuid_type: load_type(c"uuid", c"UUID"),
                 array_struct_str: PyUnicode_InternFromString(c"__array_struct__".as_ptr()),
                 dataclass_fields_str: PyUnicode_InternFromString(c"__dataclass_fields__".as_ptr()),
