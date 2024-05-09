@@ -3,11 +3,12 @@
 use ahash::RandomState;
 use once_cell::race::OnceBox;
 use pyo3::ffi::*;
+use pyo3::Python;
 use std::os::raw::c_char;
 use std::ptr::{null_mut, NonNull};
 use std::sync::Once;
 
-use crate::ext::create_ext_type;
+use crate::ext::Ext;
 
 pub struct NumpyTypes {
     pub array: *mut PyTypeObject,
@@ -70,6 +71,8 @@ pub static mut DTYPE_STR: *mut PyObject = null_mut();
 pub static mut DESCR_STR: *mut PyObject = null_mut();
 pub static mut VALUE_STR: *mut PyObject = null_mut();
 pub static mut INT_ATTR_STR: *mut PyObject = null_mut();
+pub static mut TAG_STR: *mut PyObject = null_mut();
+pub static mut DATA_STR: *mut PyObject = null_mut();
 
 pub static mut HASH_BUILDER: OnceBox<ahash::RandomState> = OnceBox::new();
 
@@ -122,7 +125,9 @@ pub fn init_typerefs() {
         UUID_TYPE = look_up_uuid_type();
         ENUM_TYPE = look_up_enum_type();
         FIELD_TYPE = look_up_field_type();
-        EXT_TYPE = create_ext_type();
+        Python::with_gil(|py| {
+            EXT_TYPE = py.get_type_bound::<Ext>().as_ptr() as *mut PyTypeObject;
+        });
         INT_ATTR_STR = PyUnicode_InternFromString("int\0".as_ptr() as *const c_char);
         UTCOFFSET_METHOD_STR = PyUnicode_InternFromString("utcoffset\0".as_ptr() as *const c_char);
         NORMALIZE_METHOD_STR = PyUnicode_InternFromString("normalize\0".as_ptr() as *const c_char);
@@ -141,6 +146,8 @@ pub fn init_typerefs() {
         DTYPE_STR = PyUnicode_InternFromString("dtype\0".as_ptr() as *const c_char);
         DESCR_STR = PyUnicode_InternFromString("descr\0".as_ptr() as *const c_char);
         VALUE_STR = PyUnicode_InternFromString("value\0".as_ptr() as *const c_char);
+        TAG_STR = PyUnicode_InternFromString("tag\0".as_ptr() as *const c_char);
+        DATA_STR = PyUnicode_InternFromString("data\0".as_ptr() as *const c_char);
         DEFAULT = PyUnicode_InternFromString("default\0".as_ptr() as *const c_char);
         EXT_HOOK = PyUnicode_InternFromString("ext_hook\0".as_ptr() as *const c_char);
         OPTION = PyUnicode_InternFromString("option\0".as_ptr() as *const c_char);
