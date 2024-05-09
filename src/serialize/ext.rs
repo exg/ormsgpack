@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
-use crate::ext::PyExt;
-use crate::ffi::pybytes_as_bytes;
+use crate::ext;
 use serde::ser::{Serialize, Serializer};
 use serde_bytes::Bytes;
 
@@ -21,13 +20,15 @@ impl Serialize for Ext {
     where
         S: Serializer,
     {
-        let ext = self.ptr.cast::<PyExt>();
-        let tag = unsafe { pyo3::ffi::PyLong_AsLongLong((*ext).tag) };
-        if unlikely!(!(0..=127).contains(&tag)) {
-            return Err(serde::ser::Error::custom("Extension type out of range"));
-        }
-        let data = unsafe { pybytes_as_bytes((*ext).data) };
-
-        serializer.serialize_newtype_variant("", tag as u32, "", Bytes::new(data))
+        pyo3::Python::attach(|py| {
+            let ext = unsafe { pyo3::Borrowed::from_ptr(py, self.ptr) }
+                .cast::<ext::Ext>()
+                .unwrap()
+                .borrow();
+            if unlikely!(!(0..=127).contains(&ext.tag)) {
+                return Err(serde::ser::Error::custom("Extension type out of range"));
+            }
+            serializer.serialize_newtype_variant("", ext.tag as u32, "", Bytes::new(&ext.data))
+        })
     }
 }
