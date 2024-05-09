@@ -695,7 +695,7 @@ impl PyObject {
         }
 
         if py_is!(ob_type, (*self.state).ext_type) {
-            return Ext::new(self.ptr).serialize(serializer);
+            return Ext::new(self.ptr, self.state).serialize(serializer);
         }
 
         if self.opts & PASSTHROUGH_DATACLASS == 0

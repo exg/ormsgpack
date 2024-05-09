@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
 use crate::deserialize::KeyMap;
-use crate::ext::create_ext_type;
+use crate::ext::Ext;
 use pyo3::ffi::*;
+use pyo3::Python;
 use std::ffi::CStr;
 use std::ptr::null_mut;
 use std::sync::OnceLock;
@@ -80,6 +81,7 @@ pub struct State {
     pub ext_type: *mut PyTypeObject,
     pub uuid_type: *mut PyTypeObject,
     pub array_struct_str: *mut PyObject,
+    pub data_str: *mut PyObject,
     pub dataclass_fields_str: *mut PyObject,
     pub default_str: *mut PyObject,
     pub descr_str: *mut PyObject,
@@ -93,6 +95,7 @@ pub struct State {
     pub option_str: *mut PyObject,
     pub pydantic_validator_str: *mut PyObject,
     pub slots_str: *mut PyObject,
+    pub tag_str: *mut PyObject,
     pub utcoffset_str: *mut PyObject,
     pub value_str: *mut PyObject,
     pub MsgpackEncodeError: *mut PyObject,
@@ -103,14 +106,16 @@ pub struct State {
 impl State {
     #[cold]
     pub fn new() -> Self {
+        let ext_type = Python::attach(|py| py.get_type::<Ext>().as_ptr().cast::<PyTypeObject>());
         unsafe {
             Self {
                 numpy_types: OnceLock::new(),
                 dataclass_field_type: load_type(c"dataclasses", c"_FIELD"),
                 enum_type: load_type(c"enum", c"EnumMeta"),
-                ext_type: create_ext_type(),
+                ext_type: ext_type,
                 uuid_type: load_type(c"uuid", c"UUID"),
                 array_struct_str: PyUnicode_InternFromString(c"__array_struct__".as_ptr()),
+                data_str: PyUnicode_InternFromString(c"data".as_ptr()),
                 dataclass_fields_str: PyUnicode_InternFromString(c"__dataclass_fields__".as_ptr()),
                 default_str: PyUnicode_InternFromString(c"default".as_ptr()),
                 descr_str: PyUnicode_InternFromString(c"descr".as_ptr()),
@@ -126,6 +131,7 @@ impl State {
                     c"__pydantic_validator__".as_ptr(),
                 ),
                 slots_str: PyUnicode_InternFromString(c"__slots__".as_ptr()),
+                tag_str: PyUnicode_InternFromString(c"tag".as_ptr()),
                 utcoffset_str: PyUnicode_InternFromString(c"utcoffset".as_ptr()),
                 value_str: PyUnicode_InternFromString(c"value".as_ptr()),
                 MsgpackEncodeError: compat::Py_NewRef(PyExc_TypeError),
