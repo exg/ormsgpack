@@ -1,4 +1,4 @@
-use pyo3::ffi::*;
+use pyo3_ffi::*;
 use std::os::raw::{c_char, c_int, c_uint, c_void};
 use std::ptr::null_mut;
 

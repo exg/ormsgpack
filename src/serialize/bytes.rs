@@ -6,11 +6,11 @@ use serde::ser::{Serialize, Serializer};
 
 #[repr(transparent)]
 pub struct Bytes {
-    ptr: *mut pyo3::ffi::PyObject,
+    ptr: *mut pyo3_ffi::PyObject,
 }
 
 impl Bytes {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject) -> Self {
+    pub fn new(ptr: *mut pyo3_ffi::PyObject) -> Self {
         Bytes { ptr: ptr }
     }
 }

@@ -2,7 +2,7 @@
 
 use crate::typeref::EMPTY_UNICODE;
 use core::ffi::c_void;
-use pyo3::ffi::*;
+use pyo3_ffi::*;
 
 // see unicodeobject.h for documentation
 

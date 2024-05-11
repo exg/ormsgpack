@@ -7,11 +7,11 @@ use serde::ser::{Serialize, Serializer};
 
 #[repr(transparent)]
 pub struct Date {
-    ptr: *mut pyo3::ffi::PyObject,
+    ptr: *mut pyo3_ffi::PyObject,
 }
 
 impl Date {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject) -> Self {
+    pub fn new(ptr: *mut pyo3_ffi::PyObject) -> Self {
         Date { ptr: ptr }
     }
 }
@@ -55,13 +55,13 @@ impl std::fmt::Display for TimeError {
 }
 
 pub struct Time {
-    ptr: *mut pyo3::ffi::PyObject,
+    ptr: *mut pyo3_ffi::PyObject,
     opts: Opt,
 }
 
 impl Time {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject, opts: Opt) -> Result<Self, TimeError> {
-        if unsafe { (*(ptr as *mut pyo3::ffi::PyDateTime_Time)).hastzinfo != 0 } {
+    pub fn new(ptr: *mut pyo3_ffi::PyObject, opts: Opt) -> Result<Self, TimeError> {
+        if unsafe { (*(ptr as *mut pyo3_ffi::PyDateTime_Time)).hastzinfo != 0 } {
             return Err(TimeError::HasTimezone);
         }
         Ok(Time {
@@ -113,13 +113,13 @@ impl std::fmt::Display for DateTimeError {
     }
 }
 
-fn utcoffset(ptr: *mut pyo3::ffi::PyObject) -> Result<Offset, DateTimeError> {
-    if !unsafe { (*(ptr as *mut pyo3::ffi::PyDateTime_DateTime)).hastzinfo == 1 } {
+fn utcoffset(ptr: *mut pyo3_ffi::PyObject) -> Result<Offset, DateTimeError> {
+    if !unsafe { (*(ptr as *mut pyo3_ffi::PyDateTime_DateTime)).hastzinfo == 1 } {
         return Ok(Offset::default());
     }
 
     let tzinfo = ffi!(PyDateTime_DATE_GET_TZINFO(ptr));
-    let py_offset: *mut pyo3::ffi::PyObject;
+    let py_offset: *mut pyo3_ffi::PyObject;
     if ffi!(PyObject_HasAttr(tzinfo, CONVERT_METHOD_STR)) == 1 {
         // pendulum
         py_offset = call_method!(ptr, UTCOFFSET_METHOD_STR);
@@ -143,13 +143,13 @@ fn utcoffset(ptr: *mut pyo3::ffi::PyObject) -> Result<Offset, DateTimeError> {
 }
 
 pub struct DateTime {
-    ptr: *mut pyo3::ffi::PyObject,
+    ptr: *mut pyo3_ffi::PyObject,
     opts: Opt,
     offset: Offset,
 }
 
 impl DateTime {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject, opts: Opt) -> Result<Self, DateTimeError> {
+    pub fn new(ptr: *mut pyo3_ffi::PyObject, opts: Opt) -> Result<Self, DateTimeError> {
         let offset = utcoffset(ptr)?;
         Ok(DateTime {
             ptr: ptr,
@@ -193,7 +193,7 @@ impl TimeLike for DateTime {
 
 impl DateTimeLike for DateTime {
     fn has_tz(&self) -> bool {
-        unsafe { (*(self.ptr as *mut pyo3::ffi::PyDateTime_DateTime)).hastzinfo == 1 }
+        unsafe { (*(self.ptr as *mut pyo3_ffi::PyDateTime_DateTime)).hastzinfo == 1 }
     }
 
     fn offset(&self) -> Offset {

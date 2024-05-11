@@ -17,14 +17,14 @@ unsafe impl Send for CachedKey {}
 unsafe impl Sync for CachedKey {}
 
 impl CachedKey {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject) -> CachedKey {
+    pub fn new(ptr: *mut pyo3_ffi::PyObject) -> CachedKey {
         CachedKey {
             ptr: ptr as *mut c_void,
         }
     }
 
-    pub fn get(&mut self) -> *mut pyo3::ffi::PyObject {
-        let ptr = self.ptr as *mut pyo3::ffi::PyObject;
+    pub fn get(&mut self) -> *mut pyo3_ffi::PyObject {
+        let ptr = self.ptr as *mut pyo3_ffi::PyObject;
         ffi!(Py_INCREF(ptr));
         ptr
     }
@@ -32,7 +32,7 @@ impl CachedKey {
 
 impl Drop for CachedKey {
     fn drop(&mut self) {
-        ffi!(Py_DECREF(self.ptr as *mut pyo3::ffi::PyObject));
+        ffi!(Py_DECREF(self.ptr as *mut pyo3_ffi::PyObject));
     }
 }
 

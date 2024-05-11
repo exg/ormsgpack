@@ -7,11 +7,11 @@ use serde::ser::{Serialize, Serializer};
 
 #[repr(transparent)]
 pub struct Str {
-    ptr: *mut pyo3::ffi::PyObject,
+    ptr: *mut pyo3_ffi::PyObject,
 }
 
 impl Str {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject) -> Self {
+    pub fn new(ptr: *mut pyo3_ffi::PyObject) -> Self {
         Str { ptr: ptr }
     }
 }
@@ -31,11 +31,11 @@ impl Serialize for Str {
 
 #[repr(transparent)]
 pub struct StrSubclass {
-    ptr: *mut pyo3::ffi::PyObject,
+    ptr: *mut pyo3_ffi::PyObject,
 }
 
 impl StrSubclass {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject) -> Self {
+    pub fn new(ptr: *mut pyo3_ffi::PyObject) -> Self {
         StrSubclass { ptr: ptr }
     }
 }

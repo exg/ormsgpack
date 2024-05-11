@@ -10,26 +10,26 @@ use std::ptr::NonNull;
 
 #[cold]
 #[inline(never)]
-fn format_err(ptr: *mut pyo3::ffi::PyObject) -> String {
+fn format_err(ptr: *mut pyo3_ffi::PyObject) -> String {
     let name = unsafe { CStr::from_ptr((*ob_type!(ptr)).tp_name).to_string_lossy() };
     format_args!("Type is not msgpack serializable: {name}").to_string()
 }
 
 pub struct Default {
-    ptr: *mut pyo3::ffi::PyObject,
+    ptr: *mut pyo3_ffi::PyObject,
     opts: Opt,
     default_calls: u8,
     recursion: u8,
-    default: Option<NonNull<pyo3::ffi::PyObject>>,
+    default: Option<NonNull<pyo3_ffi::PyObject>>,
 }
 
 impl Default {
     pub fn new(
-        ptr: *mut pyo3::ffi::PyObject,
+        ptr: *mut pyo3_ffi::PyObject,
         opts: Opt,
         default_calls: u8,
         recursion: u8,
-        default: Option<NonNull<pyo3::ffi::PyObject>>,
+        default: Option<NonNull<pyo3_ffi::PyObject>>,
     ) -> Self {
         Default {
             ptr: ptr,
@@ -56,7 +56,7 @@ impl Serialize for Default {
                 let default_obj = ffi!(PyObject_CallFunctionObjArgs(
                     callable.as_ptr(),
                     self.ptr,
-                    std::ptr::null_mut() as *mut pyo3::ffi::PyObject
+                    std::ptr::null_mut() as *mut pyo3_ffi::PyObject
                 ));
                 if unlikely!(default_obj.is_null()) {
                     err!(format_err(self.ptr))

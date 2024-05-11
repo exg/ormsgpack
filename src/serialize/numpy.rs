@@ -2,7 +2,7 @@ use crate::opt::*;
 use crate::serialize::datetimelike::NaiveDateTime;
 use crate::typeref::{load_numpy_types, ARRAY_STRUCT_STR, DESCR_STR, DTYPE_STR, NUMPY_TYPES};
 use chrono::{DateTime, NaiveDate};
-use pyo3::ffi::*;
+use pyo3_ffi::*;
 use serde::ser::{Serialize, SerializeSeq, Serializer};
 use std::os::raw::{c_char, c_int, c_void};
 
