@@ -19,7 +19,7 @@ mod serialize;
 mod typeref;
 mod unicode;
 
-use pyo3::ffi::*;
+use pyo3_ffi::*;
 use std::borrow::Cow;
 use std::os::raw::c_char;
 use std::os::raw::c_int;

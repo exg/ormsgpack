@@ -8,11 +8,11 @@ use serde_bytes::ByteBuf;
 
 #[repr(transparent)]
 pub struct Ext {
-    ptr: *mut pyo3::ffi::PyObject,
+    ptr: *mut pyo3_ffi::PyObject,
 }
 
 impl Ext {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject) -> Self {
+    pub fn new(ptr: *mut pyo3_ffi::PyObject) -> Self {
         Ext { ptr: ptr }
     }
 }

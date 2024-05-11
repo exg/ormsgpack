@@ -14,10 +14,10 @@ use std::os::raw::c_char;
 use std::ptr::NonNull;
 
 pub fn deserialize(
-    ptr: *mut pyo3::ffi::PyObject,
-    ext_hook: Option<NonNull<pyo3::ffi::PyObject>>,
+    ptr: *mut pyo3_ffi::PyObject,
+    ext_hook: Option<NonNull<pyo3_ffi::PyObject>>,
     opts: Opt,
-) -> std::result::Result<NonNull<pyo3::ffi::PyObject>, DeserializeError<'static>> {
+) -> std::result::Result<NonNull<pyo3_ffi::PyObject>, DeserializeError<'static>> {
     let obj_type_ptr = ob_type!(ptr);
     let buffer: *const u8;
     let length: usize;
@@ -27,7 +27,7 @@ pub fn deserialize(
         length = unsafe { PyBytes_GET_SIZE(ptr) as usize };
     } else if is_type!(obj_type_ptr, MEMORYVIEW_TYPE) {
         let membuf = unsafe { PyMemoryView_GET_BUFFER(ptr) };
-        if unsafe { pyo3::ffi::PyBuffer_IsContiguous(membuf, b'C' as c_char) == 0 } {
+        if unsafe { pyo3_ffi::PyBuffer_IsContiguous(membuf, b'C' as c_char) == 0 } {
             return Err(DeserializeError::new(Cow::Borrowed(
                 "Input type memoryview must be a C contiguous buffer",
             )));
@@ -56,7 +56,7 @@ pub fn deserialize(
     }
 }
 
-fn unicode_from_map_key(key: &str) -> *mut pyo3::ffi::PyObject {
+fn unicode_from_map_key(key: &str) -> *mut pyo3_ffi::PyObject {
     if unlikely!(key.len() > 64) {
         let pykey = unicode_from_str(key);
         hash_str(pykey);
@@ -78,11 +78,11 @@ fn unicode_from_map_key(key: &str) -> *mut pyo3::ffi::PyObject {
 
 #[derive(Clone, Copy)]
 struct MsgpackExtValue {
-    ext_hook: Option<NonNull<pyo3::ffi::PyObject>>,
+    ext_hook: Option<NonNull<pyo3_ffi::PyObject>>,
 }
 
 impl<'de> Visitor<'de> for MsgpackExtValue {
-    type Value = NonNull<pyo3::ffi::PyObject>;
+    type Value = NonNull<pyo3_ffi::PyObject>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_str("msgpack extension type")
@@ -104,14 +104,14 @@ impl<'de> Visitor<'de> for MsgpackExtValue {
             Some(callable) => {
                 let tag_obj = ffi!(PyLong_FromLongLong(tag as i64));
                 let data_ptr = data.as_ptr() as *const c_char;
-                let data_len = data.len() as pyo3::ffi::Py_ssize_t;
+                let data_len = data.len() as pyo3_ffi::Py_ssize_t;
                 let data_obj = ffi!(PyBytes_FromStringAndSize(data_ptr, data_len));
                 #[allow(clippy::unnecessary_cast)]
                 let obj = ffi!(PyObject_CallFunctionObjArgs(
                     callable.as_ptr(),
                     tag_obj,
                     data_obj,
-                    std::ptr::null_mut() as *mut pyo3::ffi::PyObject
+                    std::ptr::null_mut() as *mut pyo3_ffi::PyObject
                 ));
                 ffi!(Py_DECREF(tag_obj));
                 ffi!(Py_DECREF(data_obj));
@@ -128,11 +128,11 @@ impl<'de> Visitor<'de> for MsgpackExtValue {
 
 #[derive(Clone, Copy)]
 struct MsgpackValue {
-    ext_hook: Option<NonNull<pyo3::ffi::PyObject>>,
+    ext_hook: Option<NonNull<pyo3_ffi::PyObject>>,
 }
 
 impl<'de> DeserializeSeed<'de> for MsgpackValue {
-    type Value = NonNull<pyo3::ffi::PyObject>;
+    type Value = NonNull<pyo3_ffi::PyObject>;
 
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where
@@ -143,7 +143,7 @@ impl<'de> DeserializeSeed<'de> for MsgpackValue {
 }
 
 impl<'de> Visitor<'de> for MsgpackValue {
-    type Value = NonNull<pyo3::ffi::PyObject>;
+    type Value = NonNull<pyo3_ffi::PyObject>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_str("msgpack")
@@ -226,7 +226,7 @@ impl<'de> Visitor<'de> for MsgpackValue {
         E: de::Error,
     {
         let ptr = v.as_ptr() as *const c_char;
-        let len = v.len() as pyo3::ffi::Py_ssize_t;
+        let len = v.len() as pyo3_ffi::Py_ssize_t;
         Ok(nonnull!(ffi!(PyBytes_FromStringAndSize(ptr, len))))
     }
 
@@ -234,13 +234,13 @@ impl<'de> Visitor<'de> for MsgpackValue {
     where
         A: SeqAccess<'de>,
     {
-        let size = seq.size_hint().unwrap() as pyo3::ffi::Py_ssize_t;
+        let size = seq.size_hint().unwrap() as pyo3_ffi::Py_ssize_t;
         let ptr = ffi!(PyList_New(size));
         let mut i = 0;
         while let Some(elem) = seq.next_element_seed(self)? {
             ffi!(PyList_SET_ITEM(
                 ptr,
-                i as pyo3::ffi::Py_ssize_t,
+                i as pyo3_ffi::Py_ssize_t,
                 elem.as_ptr()
             ));
             i += 1;
@@ -252,12 +252,12 @@ impl<'de> Visitor<'de> for MsgpackValue {
     where
         A: MapAccess<'de>,
     {
-        let size = map.size_hint().unwrap() as pyo3::ffi::Py_ssize_t;
+        let size = map.size_hint().unwrap() as pyo3_ffi::Py_ssize_t;
         let dict_ptr = ffi!(_PyDict_NewPresized(size));
         while let Some(key) = map.next_key::<Cow<str>>()? {
             let value = map.next_value_seed(self)?;
             let pykey = unicode_from_map_key(&key);
-            let pyhash = unsafe { (*pykey.cast::<pyo3::ffi::PyASCIIObject>()).hash };
+            let pyhash = unsafe { (*pykey.cast::<pyo3_ffi::PyASCIIObject>()).hash };
             let _ = ffi!(_PyDict_SetItem_KnownHash(
                 dict_ptr,
                 pykey,
@@ -275,11 +275,11 @@ impl<'de> Visitor<'de> for MsgpackValue {
 // Implemntation of MsgpackValue that can deserialize non-str keys also.
 #[derive(Clone, Copy)]
 struct MsgpackNonStrDictValue {
-    ext_hook: Option<NonNull<pyo3::ffi::PyObject>>,
+    ext_hook: Option<NonNull<pyo3_ffi::PyObject>>,
 }
 
 impl<'de> DeserializeSeed<'de> for MsgpackNonStrDictValue {
-    type Value = NonNull<pyo3::ffi::PyObject>;
+    type Value = NonNull<pyo3_ffi::PyObject>;
 
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where
@@ -290,7 +290,7 @@ impl<'de> DeserializeSeed<'de> for MsgpackNonStrDictValue {
 }
 
 impl<'de> Visitor<'de> for MsgpackNonStrDictValue {
-    type Value = NonNull<pyo3::ffi::PyObject>;
+    type Value = NonNull<pyo3_ffi::PyObject>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_str("msgpack")
@@ -373,7 +373,7 @@ impl<'de> Visitor<'de> for MsgpackNonStrDictValue {
         E: de::Error,
     {
         let ptr = v.as_ptr() as *const c_char;
-        let len = v.len() as pyo3::ffi::Py_ssize_t;
+        let len = v.len() as pyo3_ffi::Py_ssize_t;
         Ok(nonnull!(ffi!(PyBytes_FromStringAndSize(ptr, len))))
     }
 
@@ -381,13 +381,13 @@ impl<'de> Visitor<'de> for MsgpackNonStrDictValue {
     where
         A: SeqAccess<'de>,
     {
-        let size = seq.size_hint().unwrap() as pyo3::ffi::Py_ssize_t;
+        let size = seq.size_hint().unwrap() as pyo3_ffi::Py_ssize_t;
         let ptr = ffi!(PyList_New(size));
         let mut i = 0;
         while let Some(elem) = seq.next_element_seed(self)? {
             ffi!(PyList_SET_ITEM(
                 ptr,
-                i as pyo3::ffi::Py_ssize_t,
+                i as pyo3_ffi::Py_ssize_t,
                 elem.as_ptr()
             ));
             i += 1;
@@ -399,7 +399,7 @@ impl<'de> Visitor<'de> for MsgpackNonStrDictValue {
     where
         A: MapAccess<'de>,
     {
-        let size = map.size_hint().unwrap() as pyo3::ffi::Py_ssize_t;
+        let size = map.size_hint().unwrap() as pyo3_ffi::Py_ssize_t;
         let dict_ptr = ffi!(_PyDict_NewPresized(size));
         while let Some((key, value)) = map.next_entry_seed(MsgpackKey {}, self)? {
             let ret = ffi!(PyDict_SetItem(dict_ptr, key.as_ptr(), value.as_ptr()));
@@ -417,7 +417,7 @@ impl<'de> Visitor<'de> for MsgpackNonStrDictValue {
 struct MsgpackKey;
 
 impl<'de> DeserializeSeed<'de> for MsgpackKey {
-    type Value = NonNull<pyo3::ffi::PyObject>;
+    type Value = NonNull<pyo3_ffi::PyObject>;
 
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where
@@ -428,7 +428,7 @@ impl<'de> DeserializeSeed<'de> for MsgpackKey {
 }
 
 impl<'de> Visitor<'de> for MsgpackKey {
-    type Value = NonNull<pyo3::ffi::PyObject>;
+    type Value = NonNull<pyo3_ffi::PyObject>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_str("msgpack")
@@ -499,7 +499,7 @@ impl<'de> Visitor<'de> for MsgpackKey {
         E: de::Error,
     {
         let ptr = v.as_ptr() as *const c_char;
-        let len = v.len() as pyo3::ffi::Py_ssize_t;
+        let len = v.len() as pyo3_ffi::Py_ssize_t;
         Ok(nonnull!(ffi!(PyBytes_FromStringAndSize(ptr, len))))
     }
 
@@ -507,13 +507,13 @@ impl<'de> Visitor<'de> for MsgpackKey {
     where
         A: SeqAccess<'de>,
     {
-        let size = seq.size_hint().unwrap() as pyo3::ffi::Py_ssize_t;
+        let size = seq.size_hint().unwrap() as pyo3_ffi::Py_ssize_t;
         let ptr = ffi!(PyTuple_New(size));
         let mut i = 0;
         while let Some(elem) = seq.next_element_seed(self)? {
             ffi!(PyTuple_SET_ITEM(
                 ptr,
-                i as pyo3::ffi::Py_ssize_t,
+                i as pyo3_ffi::Py_ssize_t,
                 elem.as_ptr()
             ));
             i += 1;

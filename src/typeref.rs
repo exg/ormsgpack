@@ -2,7 +2,7 @@
 
 use ahash::RandomState;
 use once_cell::race::OnceBox;
-use pyo3::ffi::*;
+use pyo3_ffi::*;
 use std::os::raw::c_char;
 use std::ptr::{null_mut, NonNull};
 use std::sync::Once;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
-use pyo3::ffi::*;
+use pyo3_ffi::*;
 use std::os::raw::c_char;
 use std::ptr::NonNull;
 

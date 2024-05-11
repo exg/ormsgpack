@@ -23,10 +23,10 @@ use std::ptr::NonNull;
 pub const RECURSION_LIMIT: u8 = 255;
 
 pub fn serialize(
-    ptr: *mut pyo3::ffi::PyObject,
-    default: Option<NonNull<pyo3::ffi::PyObject>>,
+    ptr: *mut pyo3_ffi::PyObject,
+    default: Option<NonNull<pyo3_ffi::PyObject>>,
     opts: Opt,
-) -> Result<NonNull<pyo3::ffi::PyObject>, String> {
+) -> Result<NonNull<pyo3_ffi::PyObject>, String> {
     let mut buf = BytesWriter::default();
     let obj = PyObject::new(ptr, opts, 0, 0, default);
     let mut ser = rmp_serde::Serializer::new(&mut buf);
@@ -65,7 +65,7 @@ pub enum ObType {
     Unknown,
 }
 
-pub fn pyobject_to_obtype(obj: *mut pyo3::ffi::PyObject, opts: Opt) -> ObType {
+pub fn pyobject_to_obtype(obj: *mut pyo3_ffi::PyObject, opts: Opt) -> ObType {
     let ob_type = ob_type!(obj);
     if is_type!(ob_type, STR_TYPE) {
         ObType::Str
@@ -101,12 +101,12 @@ pub fn pyobject_to_obtype(obj: *mut pyo3::ffi::PyObject, opts: Opt) -> ObType {
 
 macro_rules! is_subclass {
     ($ob_type:expr, $flag:ident) => {
-        unsafe { (((*$ob_type).tp_flags & pyo3::ffi::$flag) != 0) }
+        unsafe { (((*$ob_type).tp_flags & pyo3_ffi::$flag) != 0) }
     };
 }
 
 #[inline(never)]
-pub fn pyobject_to_obtype_unlikely(obj: *mut pyo3::ffi::PyObject, opts: Opt) -> ObType {
+pub fn pyobject_to_obtype_unlikely(obj: *mut pyo3_ffi::PyObject, opts: Opt) -> ObType {
     let ob_type = ob_type!(obj);
     if is_type!(ob_type, DATE_TYPE) && opts & PASSTHROUGH_DATETIME == 0 {
         ObType::Date
@@ -156,21 +156,21 @@ pub fn pyobject_to_obtype_unlikely(obj: *mut pyo3::ffi::PyObject, opts: Opt) -> 
 }
 
 pub struct PyObject {
-    ptr: *mut pyo3::ffi::PyObject,
+    ptr: *mut pyo3_ffi::PyObject,
     obtype: ObType,
     opts: Opt,
     default_calls: u8,
     recursion: u8,
-    default: Option<NonNull<pyo3::ffi::PyObject>>,
+    default: Option<NonNull<pyo3_ffi::PyObject>>,
 }
 
 impl PyObject {
     pub fn new(
-        ptr: *mut pyo3::ffi::PyObject,
+        ptr: *mut pyo3_ffi::PyObject,
         opts: Opt,
         default_calls: u8,
         recursion: u8,
-        default: Option<NonNull<pyo3::ffi::PyObject>>,
+        default: Option<NonNull<pyo3_ffi::PyObject>>,
     ) -> Self {
         PyObject {
             ptr: ptr,
