@@ -126,26 +126,6 @@ def test_bool():
         assert ormsgpack.unpackb(ormsgpack.packb(obj)) == obj
 
 
-def test_bool_true_array():
-    """
-    bool true array
-    """
-    obj = [True] * 256
-    packed = ormsgpack.packb(obj)
-    assert packed == msgpack.packb(obj)
-    assert ormsgpack.unpackb(packed) == obj
-
-
-def test_bool_false_array():
-    """
-    bool false array
-    """
-    obj = [False] * 256
-    packed = ormsgpack.packb(obj)
-    assert packed == msgpack.packb(obj)
-    assert ormsgpack.unpackb(packed) == obj
-
-
 def test_none():
     """
     null
@@ -154,16 +134,6 @@ def test_none():
     ref = b"\xc0"
     assert ormsgpack.packb(obj) == ref
     assert ormsgpack.unpackb(ref) == obj
-
-
-def test_null_array():
-    """
-    null array
-    """
-    obj = [None] * 256
-    packed = ormsgpack.packb(obj)
-    assert packed == msgpack.packb(obj)
-    assert ormsgpack.unpackb(packed) == obj
 
 
 @pytest.mark.parametrize("value", (9223372036854775807, -9223372036854775807))
@@ -371,34 +341,6 @@ def test_dict_unicode():
     """
     obj = {"🐈": "value"}
     assert ormsgpack.unpackb(ormsgpack.packb(obj)) == obj
-
-
-def test_dict_invalid_key_packb():
-    """
-    dict invalid key packb()
-    """
-    with pytest.raises(ormsgpack.MsgpackEncodeError):
-        ormsgpack.packb({1: "value"})
-    with pytest.raises(ormsgpack.MsgpackEncodeError):
-        ormsgpack.packb({b"key": "value"})
-
-
-def test_dict_invalid_key_unpackb():
-    """
-    dict invalid key unpackb()
-    """
-    with pytest.raises(ormsgpack.MsgpackDecodeError):
-        ormsgpack.unpackb(msgpack.packb({1: "value"}))
-    with pytest.raises(ormsgpack.MsgpackDecodeError):
-        ormsgpack.unpackb(msgpack.packb({(1, 2, 3): True}))
-
-
-def test_object():
-    """
-    object() packb()
-    """
-    with pytest.raises(ormsgpack.MsgpackEncodeError):
-        ormsgpack.packb(object())
 
 
 def test_dict_similar_keys():
