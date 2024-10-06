@@ -14,7 +14,7 @@ class SubStr(str):
     pass
 
 
-def test_dict_keys_substr_passthrough():
+def test_dict_keys_substr_passthrough() -> None:
     """
     OPT_PASSTHROUGH_SUBCLASS does not affect OPT_NON_STR_KEYS
     """
@@ -24,7 +24,7 @@ def test_dict_keys_substr_passthrough():
     ) == msgpack.packb({"aaa": True})
 
 
-def test_dict_keys_datetime_passthrough():
+def test_dict_keys_datetime_passthrough() -> None:
     """
     OPT_PASSTHROUGH_DATETIME does not affect OPT_NON_STR_KEYS
     """
@@ -44,7 +44,7 @@ def test_dict_keys_tuple_passthrough() -> None:
     ) == msgpack.packb(obj)
 
 
-def test_dict_non_str_and_sort_keys():
+def test_dict_non_str_and_sort_keys() -> None:
     with pytest.raises(ormsgpack.MsgpackEncodeError):
         ormsgpack.packb(
             {
@@ -56,7 +56,7 @@ def test_dict_non_str_and_sort_keys():
         )
 
 
-def test_dict_keys_time_err():
+def test_dict_keys_time_err() -> None:
     """
     OPT_NON_STR_KEYS propagates errors in types
     """
@@ -65,19 +65,16 @@ def test_dict_keys_time_err():
         ormsgpack.packb({val: True}, option=ormsgpack.OPT_NON_STR_KEYS)
 
 
-def test_dict_keys_dataclass_hash():
-    @dataclasses.dataclass
+def test_dict_keys_dataclass() -> None:
+    @dataclasses.dataclass(frozen=True)
     class Dataclass:
         a: str
-
-        def __hash__(self):
-            return 1
 
     obj = {Dataclass("a"): True}
     with pytest.raises(ormsgpack.MsgpackEncodeError):
         ormsgpack.packb(obj, option=ormsgpack.OPT_NON_STR_KEYS)
 
 
-def test_dict_keys_unknown():
+def test_dict_keys_unknown() -> None:
     with pytest.raises(ormsgpack.MsgpackEncodeError):
         ormsgpack.packb({frozenset(): True}, option=ormsgpack.OPT_NON_STR_KEYS)

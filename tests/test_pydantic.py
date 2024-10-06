@@ -16,7 +16,7 @@ class Model2(BaseModel):
     previous: Model1
 
 
-def test_basemodel():
+def test_basemodel() -> None:
     """
     packb() pydantic basemodel
     """
@@ -25,7 +25,7 @@ def test_basemodel():
     assert ormsgpack.unpackb(packed) == {"hi": "a", "number": 1, "sub": None}
 
 
-def test_recursive_basemodel():
+def test_recursive_basemodel() -> None:
     """
     packb() pydantic basemodel with another basemodel as attribute
     """
