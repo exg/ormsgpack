@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
-use ahash::RandomState;
 use once_cell::race::OnceBox;
 use pyo3::ffi::*;
 use std::os::raw::c_char;
@@ -71,23 +70,6 @@ pub static mut DESCR_STR: *mut PyObject = null_mut();
 pub static mut VALUE_STR: *mut PyObject = null_mut();
 pub static mut INT_ATTR_STR: *mut PyObject = null_mut();
 
-pub static mut HASH_BUILDER: OnceBox<ahash::RandomState> = OnceBox::new();
-
-pub fn ahash_init() -> Box<ahash::RandomState> {
-    unsafe {
-        debug_assert!(!VALUE_STR.is_null());
-        debug_assert!(!DICT_TYPE.is_null());
-        debug_assert!(!STR_TYPE.is_null());
-        debug_assert!(!BYTES_TYPE.is_null());
-        Box::new(RandomState::with_seeds(
-            VALUE_STR as u64,
-            DICT_TYPE as u64,
-            STR_TYPE as u64,
-            BYTES_TYPE as u64,
-        ))
-    }
-}
-
 #[allow(non_upper_case_globals)]
 pub static mut MsgpackEncodeError: *mut PyObject = null_mut();
 #[allow(non_upper_case_globals)]
@@ -148,8 +130,6 @@ pub fn init_typerefs() {
         MsgpackEncodeError = PyExc_TypeError;
         Py_INCREF(PyExc_ValueError);
         MsgpackDecodeError = PyExc_ValueError;
-
-        HASH_BUILDER.get_or_init(ahash_init);
     });
 }
 
