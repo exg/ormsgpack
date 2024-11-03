@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
 use crate::ffi::*;
-use ahash::RandomState;
+use foldhash::fast::RandomState;
 use simdutf8::basic::{from_utf8, Utf8Error};
 use std::hash::BuildHasher;
 use std::hash::Hasher;
@@ -53,7 +53,7 @@ impl<const C: usize> KeyMap<C> {
             entries: Mutex::new(entries),
             #[cfg(not(Py_GIL_DISABLED))]
             entries: entries,
-            hash_builder: RandomState::new(),
+            hash_builder: RandomState::default(),
         }
     }
 
