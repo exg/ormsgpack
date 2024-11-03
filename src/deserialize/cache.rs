@@ -2,6 +2,7 @@
 
 use crate::ffi::*;
 use crate::typeref::*;
+use foldhash::fast::RandomState;
 use once_cell::unsync::OnceCell;
 use simdutf8::basic::{from_utf8, Utf8Error};
 use std::hash::BuildHasher;
@@ -35,6 +36,7 @@ impl Drop for CachedKey {
 
 pub struct KeyMap<const C: usize> {
     entries: Vec<Option<CachedKey>>,
+    hash_builder: RandomState,
 }
 
 impl<const C: usize> KeyMap<C> {
@@ -43,12 +45,15 @@ impl<const C: usize> KeyMap<C> {
         for _ in 0..C {
             entries.push(None);
         }
-        KeyMap { entries: entries }
+        KeyMap {
+            entries: entries,
+            hash_builder: RandomState::default(),
+        }
     }
 
     pub fn get(&mut self, key: &[u8]) -> Result<NonNull<pyo3::ffi::PyObject>, Utf8Error> {
-        let mut hasher = unsafe { HASH_BUILDER.get().unwrap().build_hasher() };
         let hash = {
+            let mut hasher = self.hash_builder.build_hasher();
             hasher.write(key);
             hasher.finish()
         } as usize;
