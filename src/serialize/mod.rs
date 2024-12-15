@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
+mod attribute_dict;
 mod bytes;
 mod dataclass;
 mod datetime;
