@@ -3,6 +3,7 @@
 use crate::exc::*;
 use crate::ffi::*;
 use crate::opt::*;
+use crate::serialize::attribute_dict::*;
 use crate::serialize::bytes::*;
 use crate::serialize::dataclass::*;
 use crate::serialize::datetime::*;
