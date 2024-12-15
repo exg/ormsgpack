@@ -526,6 +526,23 @@ pub fn serialize(
 }
 
 #[derive(Copy, Clone)]
+pub enum NumpyType {
+    Bool,
+    Datetime64,
+    Float16,
+    Float32,
+    Float64,
+    Int8,
+    Int16,
+    Int32,
+    Int64,
+    Uint8,
+    Uint16,
+    Uint32,
+    Uint64,
+}
+
+#[derive(Copy, Clone)]
 pub enum ObType {
     Str,
     Bytes,
@@ -541,7 +558,7 @@ pub enum ObType {
     Tuple,
     Uuid,
     Dataclass,
-    NumpyScalar,
+    NumpyScalar(NumpyType),
     NumpyArray,
     Pydantic,
     Enum,
@@ -655,11 +672,50 @@ fn pyobject_to_obtype_unlikely(obj: *mut pyo3::ffi::PyObject, opts: Opt) -> ObTy
     }
 
     if opts & SERIALIZE_NUMPY != 0 {
-        if is_numpy_scalar(ob_type) {
-            return ObType::NumpyScalar;
-        }
-        if is_numpy_array(ob_type) {
-            return ObType::NumpyArray;
+        if let Some(numpy_types) = unsafe { NUMPY_TYPES.get_or_init(load_numpy_types) } {
+            let numpy_types_ref = unsafe { numpy_types.as_ref() };
+            if ob_type == numpy_types_ref.bool_ {
+                return ObType::NumpyScalar(NumpyType::Bool);
+            }
+            if ob_type == numpy_types_ref.datetime64 {
+                return ObType::NumpyScalar(NumpyType::Datetime64);
+            }
+            if ob_type == numpy_types_ref.float16 {
+                return ObType::NumpyScalar(NumpyType::Float16);
+            }
+            if ob_type == numpy_types_ref.float32 {
+                return ObType::NumpyScalar(NumpyType::Float32);
+            }
+            if ob_type == numpy_types_ref.float64 {
+                return ObType::NumpyScalar(NumpyType::Float64);
+            }
+            if ob_type == numpy_types_ref.int8 {
+                return ObType::NumpyScalar(NumpyType::Int8);
+            }
+            if ob_type == numpy_types_ref.int16 {
+                return ObType::NumpyScalar(NumpyType::Int16);
+            }
+            if ob_type == numpy_types_ref.int32 {
+                return ObType::NumpyScalar(NumpyType::Int32);
+            }
+            if ob_type == numpy_types_ref.int64 {
+                return ObType::NumpyScalar(NumpyType::Int64);
+            }
+            if ob_type == numpy_types_ref.uint8 {
+                return ObType::NumpyScalar(NumpyType::Uint8);
+            }
+            if ob_type == numpy_types_ref.uint16 {
+                return ObType::NumpyScalar(NumpyType::Uint16);
+            }
+            if ob_type == numpy_types_ref.uint32 {
+                return ObType::NumpyScalar(NumpyType::Uint32);
+            }
+            if ob_type == numpy_types_ref.uint64 {
+                return ObType::NumpyScalar(NumpyType::Uint64);
+            }
+            if ob_type == numpy_types_ref.array {
+                return ObType::NumpyArray;
+            }
         }
     }
 
@@ -814,7 +870,23 @@ impl Serialize for PyObject {
                     }
                 }
             },
-            ObType::NumpyScalar => NumpyScalar::new(self.ptr, self.opts).serialize(serializer),
+            ObType::NumpyScalar(numpy_type) => match numpy_type {
+                NumpyType::Bool => NumpyBool::new(self.ptr).serialize(serializer),
+                NumpyType::Datetime64 => {
+                    NumpyDatetime64::new(self.ptr, self.opts).serialize(serializer)
+                }
+                NumpyType::Float16 => NumpyFloat16::new(self.ptr).serialize(serializer),
+                NumpyType::Float32 => NumpyFloat32::new(self.ptr).serialize(serializer),
+                NumpyType::Float64 => NumpyFloat64::new(self.ptr).serialize(serializer),
+                NumpyType::Int8 => NumpyInt8::new(self.ptr).serialize(serializer),
+                NumpyType::Int16 => NumpyInt16::new(self.ptr).serialize(serializer),
+                NumpyType::Int32 => NumpyInt32::new(self.ptr).serialize(serializer),
+                NumpyType::Int64 => NumpyInt64::new(self.ptr).serialize(serializer),
+                NumpyType::Uint8 => NumpyUint8::new(self.ptr).serialize(serializer),
+                NumpyType::Uint16 => NumpyUint16::new(self.ptr).serialize(serializer),
+                NumpyType::Uint32 => NumpyUint32::new(self.ptr).serialize(serializer),
+                NumpyType::Uint64 => NumpyUint64::new(self.ptr).serialize(serializer),
+            },
             ObType::Ext => Ext::new(self.ptr).serialize(serializer),
             ObType::Unknown => Default::new(
                 self.ptr,

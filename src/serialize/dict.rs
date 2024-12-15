@@ -252,7 +252,7 @@ impl Serialize for DictWithNonStrKeys {
                 )?;
             } else {
                 match pyobject_to_obtype(key.as_ptr(), opts) {
-                    ObType::NumpyScalar
+                    ObType::NumpyScalar(_)
                     | ObType::NumpyArray
                     | ObType::Dict
                     | ObType::List

@@ -1,6 +1,6 @@
 use crate::opt::*;
 use crate::serialize::datetimelike::NaiveDateTime;
-use crate::typeref::{load_numpy_types, ARRAY_STRUCT_STR, DESCR_STR, DTYPE_STR, NUMPY_TYPES};
+use crate::typeref::{ARRAY_STRUCT_STR, DESCR_STR, DTYPE_STR};
 use chrono::{DateTime, NaiveDate};
 use pyo3::ffi::*;
 use serde::ser::{Serialize, SerializeSeq, Serializer};
@@ -12,38 +12,6 @@ macro_rules! slice {
     };
 }
 
-pub fn is_numpy_scalar(ob_type: *mut PyTypeObject) -> bool {
-    let numpy_types = unsafe { NUMPY_TYPES.get_or_init(load_numpy_types) };
-    if numpy_types.is_none() {
-        false
-    } else {
-        let scalar_types = unsafe { numpy_types.unwrap().as_ref() };
-        ob_type == scalar_types.float64
-            || ob_type == scalar_types.float32
-            || ob_type == scalar_types.float16
-            || ob_type == scalar_types.int64
-            || ob_type == scalar_types.int32
-            || ob_type == scalar_types.int16
-            || ob_type == scalar_types.int8
-            || ob_type == scalar_types.uint64
-            || ob_type == scalar_types.uint32
-            || ob_type == scalar_types.uint16
-            || ob_type == scalar_types.uint8
-            || ob_type == scalar_types.bool_
-            || ob_type == scalar_types.datetime64
-    }
-}
-
-pub fn is_numpy_array(ob_type: *mut PyTypeObject) -> bool {
-    let numpy_types = unsafe { NUMPY_TYPES.get_or_init(load_numpy_types) };
-    if numpy_types.is_none() {
-        false
-    } else {
-        let scalar_types = unsafe { numpy_types.unwrap().as_ref() };
-        unsafe { ob_type == scalar_types.array }
-    }
-}
-
 #[repr(C)]
 pub struct PyCapsule {
     pub ob_base: PyObject,
@@ -53,7 +21,7 @@ pub struct PyCapsule {
     pub destructor: *mut c_void, // should be typedef void (*PyCapsule_Destructor)(PyObject *);
 }
 
-// https://docs.scipy.org/doc/numpy/reference/arrays.interface.html#c.__array_struct__
+// https://numpy.org/doc/stable/reference/arrays.interface.html#c.__array_struct__
 
 #[repr(C)]
 pub struct PyArrayInterface {
@@ -260,73 +228,75 @@ impl Serialize for NumpyArray {
                 ItemType::F64 => {
                     let slice: &[f64] = slice!(data_ptr as *const f64, num_items);
                     for &each in slice.iter() {
-                        seq.serialize_element(&DataTypeF64 { obj: each }).unwrap();
+                        seq.serialize_element(&each).unwrap();
                     }
                 }
                 ItemType::F32 => {
                     let slice: &[f32] = slice!(data_ptr as *const f32, num_items);
                     for &each in slice.iter() {
-                        seq.serialize_element(&DataTypeF32 { obj: each }).unwrap();
+                        seq.serialize_element(&each).unwrap();
                     }
                 }
                 ItemType::F16 => {
                     let slice: &[u16] = slice!(data_ptr as *const u16, num_items);
                     for &each in slice.iter() {
-                        seq.serialize_element(&DataTypeF16 { obj: each }).unwrap();
+                        let value = half::f16::from_bits(each);
+                        seq.serialize_element(&value.to_f32()).unwrap();
                     }
                 }
                 ItemType::U64 => {
                     let slice: &[u64] = slice!(data_ptr as *const u64, num_items);
                     for &each in slice.iter() {
-                        seq.serialize_element(&DataTypeU64 { obj: each }).unwrap();
+                        seq.serialize_element(&each).unwrap();
                     }
                 }
                 ItemType::U32 => {
                     let slice: &[u32] = slice!(data_ptr as *const u32, num_items);
                     for &each in slice.iter() {
-                        seq.serialize_element(&DataTypeU32 { obj: each }).unwrap();
+                        seq.serialize_element(&each).unwrap();
                     }
                 }
                 ItemType::U16 => {
                     let slice: &[u16] = slice!(data_ptr as *const u16, num_items);
                     for &each in slice.iter() {
-                        seq.serialize_element(&DataTypeU16 { obj: each }).unwrap();
+                        seq.serialize_element(&each).unwrap();
                     }
                 }
                 ItemType::U8 => {
                     let slice: &[u8] = slice!(data_ptr as *const u8, num_items);
                     for &each in slice.iter() {
-                        seq.serialize_element(&DataTypeU8 { obj: each }).unwrap();
+                        seq.serialize_element(&each).unwrap();
                     }
                 }
                 ItemType::I64 => {
                     let slice: &[i64] = slice!(data_ptr as *const i64, num_items);
                     for &each in slice.iter() {
-                        seq.serialize_element(&DataTypeI64 { obj: each }).unwrap();
+                        seq.serialize_element(&each).unwrap();
                     }
                 }
                 ItemType::I32 => {
                     let slice: &[i32] = slice!(data_ptr as *const i32, num_items);
                     for &each in slice.iter() {
-                        seq.serialize_element(&DataTypeI32 { obj: each }).unwrap();
+                        seq.serialize_element(&each).unwrap();
                     }
                 }
                 ItemType::I16 => {
                     let slice: &[i16] = slice!(data_ptr as *const i16, num_items);
                     for &each in slice.iter() {
-                        seq.serialize_element(&DataTypeI16 { obj: each }).unwrap();
+                        seq.serialize_element(&each).unwrap();
                     }
                 }
                 ItemType::I8 => {
                     let slice: &[i8] = slice!(data_ptr as *const i8, num_items);
                     for &each in slice.iter() {
-                        seq.serialize_element(&DataTypeI8 { obj: each }).unwrap();
+                        seq.serialize_element(&each).unwrap();
                     }
                 }
                 ItemType::BOOL => {
                     let slice: &[u8] = slice!(data_ptr as *const u8, num_items);
                     for &each in slice.iter() {
-                        seq.serialize_element(&DataTypeBool { obj: each }).unwrap();
+                        let value: bool = each == 1;
+                        seq.serialize_element(&value).unwrap();
                     }
                 }
                 ItemType::DATETIME64(unit) => {
@@ -341,414 +311,6 @@ impl Serialize for NumpyArray {
             }
             seq.end()
         }
-    }
-}
-
-#[repr(transparent)]
-pub struct DataTypeF64 {
-    pub obj: f64,
-}
-
-impl Serialize for DataTypeF64 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_f64(self.obj)
-    }
-}
-
-#[repr(transparent)]
-struct DataTypeF32 {
-    pub obj: f32,
-}
-
-impl Serialize for DataTypeF32 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_f32(self.obj)
-    }
-}
-
-#[repr(transparent)]
-struct DataTypeF16 {
-    pub obj: u16,
-}
-
-impl Serialize for DataTypeF16 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let value = half::f16::from_bits(self.obj);
-        serializer.serialize_f32(value.to_f32())
-    }
-}
-
-#[repr(transparent)]
-pub struct DataTypeU64 {
-    pub obj: u64,
-}
-
-impl Serialize for DataTypeU64 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_u64(self.obj)
-    }
-}
-
-#[repr(transparent)]
-pub struct DataTypeU32 {
-    pub obj: u32,
-}
-
-impl Serialize for DataTypeU32 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_u32(self.obj)
-    }
-}
-
-#[repr(transparent)]
-pub struct DataTypeU16 {
-    pub obj: u16,
-}
-
-impl Serialize for DataTypeU16 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_u16(self.obj)
-    }
-}
-
-#[repr(transparent)]
-pub struct DataTypeU8 {
-    pub obj: u8,
-}
-
-impl Serialize for DataTypeU8 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_u8(self.obj)
-    }
-}
-
-#[repr(transparent)]
-pub struct DataTypeI64 {
-    pub obj: i64,
-}
-
-impl Serialize for DataTypeI64 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_i64(self.obj)
-    }
-}
-
-#[repr(transparent)]
-pub struct DataTypeI32 {
-    pub obj: i32,
-}
-
-impl Serialize for DataTypeI32 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_i32(self.obj)
-    }
-}
-
-#[repr(transparent)]
-pub struct DataTypeI16 {
-    pub obj: i16,
-}
-
-impl Serialize for DataTypeI16 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_i16(self.obj)
-    }
-}
-
-#[repr(transparent)]
-pub struct DataTypeI8 {
-    pub obj: i8,
-}
-
-impl Serialize for DataTypeI8 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_i8(self.obj)
-    }
-}
-
-#[repr(transparent)]
-pub struct DataTypeBool {
-    pub obj: u8,
-}
-
-impl Serialize for DataTypeBool {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_bool(self.obj == 1)
-    }
-}
-
-pub struct NumpyScalar {
-    pub ptr: *mut PyObject,
-    opts: Opt,
-}
-
-impl NumpyScalar {
-    pub fn new(ptr: *mut PyObject, opts: Opt) -> Self {
-        NumpyScalar { ptr, opts }
-    }
-}
-
-impl Serialize for NumpyScalar {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        unsafe {
-            let ob_type = ob_type!(self.ptr);
-            let scalar_types =
-                unsafe { NUMPY_TYPES.get_or_init(load_numpy_types).unwrap().as_ref() };
-            if ob_type == scalar_types.float64 {
-                (*(self.ptr as *mut NumpyFloat64)).serialize(serializer)
-            } else if ob_type == scalar_types.float32 {
-                (*(self.ptr as *mut NumpyFloat32)).serialize(serializer)
-            } else if ob_type == scalar_types.float16 {
-                (*(self.ptr as *mut NumpyFloat16)).serialize(serializer)
-            } else if ob_type == scalar_types.int64 {
-                (*(self.ptr as *mut NumpyInt64)).serialize(serializer)
-            } else if ob_type == scalar_types.int32 {
-                (*(self.ptr as *mut NumpyInt32)).serialize(serializer)
-            } else if ob_type == scalar_types.int16 {
-                (*(self.ptr as *mut NumpyInt16)).serialize(serializer)
-            } else if ob_type == scalar_types.int8 {
-                (*(self.ptr as *mut NumpyInt8)).serialize(serializer)
-            } else if ob_type == scalar_types.uint64 {
-                (*(self.ptr as *mut NumpyUint64)).serialize(serializer)
-            } else if ob_type == scalar_types.uint32 {
-                (*(self.ptr as *mut NumpyUint32)).serialize(serializer)
-            } else if ob_type == scalar_types.uint16 {
-                (*(self.ptr as *mut NumpyUint16)).serialize(serializer)
-            } else if ob_type == scalar_types.uint8 {
-                (*(self.ptr as *mut NumpyUint8)).serialize(serializer)
-            } else if ob_type == scalar_types.bool_ {
-                (*(self.ptr as *mut NumpyBool)).serialize(serializer)
-            } else if ob_type == scalar_types.datetime64 {
-                let unit = NumpyDatetimeUnit::from_pyobject(self.ptr);
-                let obj = &*(self.ptr as *mut NumpyDatetime64);
-                let dt = unit
-                    .datetime(obj.value, self.opts)
-                    .map_err(serde::ser::Error::custom)?;
-                dt.serialize(serializer)
-            } else {
-                unreachable!()
-            }
-        }
-    }
-}
-
-#[repr(C)]
-pub struct NumpyInt8 {
-    pub ob_base: PyObject,
-    pub value: i8,
-}
-
-impl Serialize for NumpyInt8 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_i8(self.value)
-    }
-}
-
-#[repr(C)]
-pub struct NumpyInt16 {
-    pub ob_base: PyObject,
-    pub value: i16,
-}
-
-impl Serialize for NumpyInt16 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_i16(self.value)
-    }
-}
-
-#[repr(C)]
-pub struct NumpyInt32 {
-    pub ob_base: PyObject,
-    pub value: i32,
-}
-
-impl Serialize for NumpyInt32 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_i32(self.value)
-    }
-}
-
-#[repr(C)]
-pub struct NumpyInt64 {
-    pub ob_base: PyObject,
-    pub value: i64,
-}
-
-impl Serialize for NumpyInt64 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_i64(self.value)
-    }
-}
-
-#[repr(C)]
-pub struct NumpyUint8 {
-    pub ob_base: PyObject,
-    pub value: u8,
-}
-
-impl Serialize for NumpyUint8 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_u8(self.value)
-    }
-}
-
-#[repr(C)]
-pub struct NumpyUint16 {
-    pub ob_base: PyObject,
-    pub value: u16,
-}
-
-impl Serialize for NumpyUint16 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_u16(self.value)
-    }
-}
-
-#[repr(C)]
-pub struct NumpyUint32 {
-    pub ob_base: PyObject,
-    pub value: u32,
-}
-
-impl Serialize for NumpyUint32 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_u32(self.value)
-    }
-}
-
-#[repr(C)]
-pub struct NumpyUint64 {
-    pub ob_base: PyObject,
-    pub value: u64,
-}
-
-impl Serialize for NumpyUint64 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_u64(self.value)
-    }
-}
-
-#[repr(C)]
-pub struct NumpyFloat16 {
-    pub ob_base: PyObject,
-    pub value: u16,
-}
-
-impl Serialize for NumpyFloat16 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let value = half::f16::from_bits(self.value);
-        serializer.serialize_f32(value.to_f32())
-    }
-}
-
-#[repr(C)]
-pub struct NumpyFloat32 {
-    pub ob_base: PyObject,
-    pub value: f32,
-}
-
-impl Serialize for NumpyFloat32 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_f32(self.value)
-    }
-}
-
-#[repr(C)]
-pub struct NumpyFloat64 {
-    pub ob_base: PyObject,
-    pub value: f64,
-}
-
-impl Serialize for NumpyFloat64 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_f64(self.value)
-    }
-}
-
-#[repr(C)]
-pub struct NumpyBool {
-    pub ob_base: PyObject,
-    pub value: bool,
-}
-
-impl Serialize for NumpyBool {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_bool(self.value)
     }
 }
 
@@ -925,8 +487,103 @@ impl NumpyDatetimeUnit {
     }
 }
 
+macro_rules! define_numpy_type {
+    ($name:ident, $object_name:ident, $type:ty, $serialize_method:ident) => {
+        #[repr(C)]
+        struct $object_name {
+            pub ob_base: PyObject,
+            pub value: $type,
+        }
+
+        #[repr(transparent)]
+        pub struct $name {
+            pub ptr: *mut PyObject,
+        }
+
+        impl $name {
+            pub fn new(ptr: *mut PyObject) -> Self {
+                $name { ptr }
+            }
+        }
+
+        impl Serialize for $name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer,
+            {
+                let value = unsafe { (*(self.ptr as *mut $object_name)).value };
+                serializer.$serialize_method(value)
+            }
+        }
+    };
+}
+
+define_numpy_type!(NumpyBool, NumpyBoolObject, bool, serialize_bool);
+define_numpy_type!(NumpyFloat32, NumpyFloat32Object, f32, serialize_f32);
+define_numpy_type!(NumpyFloat64, NumpyFloat64Object, f64, serialize_f64);
+define_numpy_type!(NumpyInt8, NumpyInt8Object, i8, serialize_i8);
+define_numpy_type!(NumpyInt16, NumpyInt16Object, i16, serialize_i16);
+define_numpy_type!(NumpyInt32, NumpyInt32Object, i32, serialize_i32);
+define_numpy_type!(NumpyInt64, NumpyInt64Object, i64, serialize_i64);
+define_numpy_type!(NumpyUint8, NumpyUint8Object, u8, serialize_u8);
+define_numpy_type!(NumpyUint16, NumpyUint16Object, u16, serialize_u16);
+define_numpy_type!(NumpyUint32, NumpyUint32Object, u32, serialize_u32);
+define_numpy_type!(NumpyUint64, NumpyUint64Object, u64, serialize_u64);
+
 #[repr(C)]
-pub struct NumpyDatetime64 {
+struct NumpyDatetime64Object {
     pub ob_base: PyObject,
     value: i64,
+}
+
+pub struct NumpyDatetime64 {
+    pub ptr: *mut PyObject,
+    opts: Opt,
+}
+
+impl NumpyDatetime64 {
+    pub fn new(ptr: *mut PyObject, opts: Opt) -> Self {
+        NumpyDatetime64 { ptr, opts }
+    }
+}
+
+impl Serialize for NumpyDatetime64 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let unit = NumpyDatetimeUnit::from_pyobject(self.ptr);
+        let value = unsafe { (*(self.ptr as *mut NumpyDatetime64Object)).value };
+        let dt = unit
+            .datetime(value, self.opts)
+            .map_err(serde::ser::Error::custom)?;
+        dt.serialize(serializer)
+    }
+}
+
+#[repr(C)]
+struct NumpyFloat16Object {
+    pub ob_base: PyObject,
+    pub value: u16,
+}
+
+#[repr(transparent)]
+pub struct NumpyFloat16 {
+    pub ptr: *mut PyObject,
+}
+
+impl NumpyFloat16 {
+    pub fn new(ptr: *mut PyObject) -> Self {
+        NumpyFloat16 { ptr }
+    }
+}
+
+impl Serialize for NumpyFloat16 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let value = half::f16::from_bits(unsafe { (*(self.ptr as *mut NumpyFloat16Object)).value });
+        serializer.serialize_f32(value.to_f32())
+    }
 }
