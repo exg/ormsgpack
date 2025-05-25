@@ -67,8 +67,10 @@ impl Serialize for PydanticModel<'_> {
         } else {
             let res = if ob_type!(extra_dict) == &raw mut pyo3::ffi::PyDict_Type {
                 self.serialize_with_extra(serializer, dict, extra_dict)
-            } else {
+            } else if self.opts & SORT_KEYS == 0 {
                 self.serialize_with_no_extra(serializer, dict)
+            } else {
+                self.serialize_with_no_extra_and_sorted_keys(serializer, dict)
             };
             unsafe {
                 pyo3::ffi::Py_DECREF(dict);
@@ -81,6 +83,34 @@ impl Serialize for PydanticModel<'_> {
 
 impl PydanticModel<'_> {
     fn serialize_with_no_extra<S>(
+        &self,
+        serializer: S,
+        dict: *mut pyo3::ffi::PyObject,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let len = unsafe { pydict_size(dict) } as usize;
+        if unlikely!(len == 0) {
+            return serializer.serialize_map(Some(0))?.end();
+        }
+        let mut map = serializer.serialize_map(Some(len))?;
+        for (key, value) in PyDictIter::from_pyobject(dict) {
+            if unlikely!(ob_type!(key.as_ptr()) != &raw mut pyo3::ffi::PyUnicode_Type) {
+                return Err(serde::ser::Error::custom(KEY_MUST_BE_STR));
+            }
+            let key_as_str = unicode_to_str(key.as_ptr()).map_err(serde::ser::Error::custom)?;
+            if unlikely!(key_as_str.as_bytes()[0] == b'_') {
+                continue;
+            }
+            let pyvalue = PyObject::new(value.as_ptr(), self.state, self.opts, self.default);
+            map.serialize_key(key_as_str).unwrap();
+            map.serialize_value(&pyvalue)?;
+        }
+        map.end()
+    }
+
+    fn serialize_with_no_extra_and_sorted_keys<S>(
         &self,
         serializer: S,
         dict: *mut pyo3::ffi::PyObject,
@@ -105,9 +135,7 @@ impl PydanticModel<'_> {
             items.push((key_as_str, value.as_ptr()));
         }
 
-        if self.opts & SORT_KEYS != 0 {
-            items.sort_unstable_by(|a, b| a.0.cmp(b.0));
-        }
+        items.sort_unstable_by(|a, b| a.0.cmp(b.0));
 
         let mut map = serializer.serialize_map(Some(items.len()))?;
         for (key, value) in items.iter() {

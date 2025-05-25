@@ -8,8 +8,6 @@ use crate::state::State;
 
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
-use smallvec::SmallVec;
-
 #[inline]
 fn has_slots(ob_type: *mut pyo3::ffi::PyTypeObject, state: *mut State) -> bool {
     unsafe {
@@ -80,37 +78,27 @@ impl Serialize for Dataclass<'_> {
             }
         };
 
-        let mut items: SmallVec<[(&str, *mut pyo3::ffi::PyObject); 8]> =
-            SmallVec::with_capacity(len);
+        let mut map = serializer.serialize_map(Some(len))?;
         for (attr, field) in PyDictIter::from_pyobject(fields) {
             let key_as_str = unicode_to_str(attr.as_ptr()).map_err(serde::ser::Error::custom)?;
             if key_as_str.as_bytes()[0] == b'_' {
                 continue;
             }
 
-            if unlikely!(dict.is_null()) {
-                if !is_pseudo_field(field.as_ptr(), self.state) {
-                    let value = unsafe { pyo3::ffi::PyObject_GetAttr(self.ptr, attr.as_ptr()) };
-                    unsafe { pyo3::ffi::Py_DECREF(value) };
-                    items.push((key_as_str, value));
-                }
-            } else {
-                let value = unsafe { pyo3::ffi::PyDict_GetItem(dict, attr.as_ptr()) };
-                if !value.is_null() {
-                    items.push((key_as_str, value));
-                } else if !is_pseudo_field(field.as_ptr(), self.state) {
-                    let value = unsafe { pyo3::ffi::PyObject_GetAttr(self.ptr, attr.as_ptr()) };
-                    unsafe { pyo3::ffi::Py_DECREF(value) };
-                    items.push((key_as_str, value));
-                }
+            let mut value = std::ptr::null_mut();
+            if !dict.is_null() {
+                unsafe { pyo3::ffi::compat::PyDict_GetItemRef(dict, attr.as_ptr(), &mut value) };
+            };
+            if value.is_null() && !is_pseudo_field(field.as_ptr(), self.state) {
+                value = unsafe { pyo3::ffi::PyObject_GetAttr(self.ptr, attr.as_ptr()) };
             }
-        }
 
-        let mut map = serializer.serialize_map(Some(items.len()))?;
-        for (key, value) in items.iter() {
-            let pyvalue = PyObject::new(*value, self.state, self.opts, self.default);
-            map.serialize_key(key).unwrap();
-            map.serialize_value(&pyvalue)?
+            if !value.is_null() {
+                let pyvalue = PyObject::new(value, self.state, self.opts, self.default);
+                map.serialize_key(key_as_str).unwrap();
+                map.serialize_value(&pyvalue)?;
+                unsafe { pyo3::ffi::Py_DECREF(value) };
+            }
         }
         map.end()
     }

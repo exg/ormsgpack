@@ -68,7 +68,7 @@ struct ExtSerializer<'a, W> {
 
 impl<'a, W> ExtSerializer<'a, W>
 where
-    W: WriteSlices,
+    W: WriteSlices + std::io::Seek,
 {
     #[inline]
     fn new(tag: i8, writer: &'a mut W) -> Self {
@@ -81,7 +81,7 @@ where
 
 impl<W> Serializer for &mut ExtSerializer<'_, W>
 where
-    W: WriteSlices,
+    W: WriteSlices + std::io::Seek,
 {
     type Ok = ();
     type Error = Error;
@@ -259,7 +259,7 @@ pub struct MessagePackSerializer<W> {
 
 impl<W> MessagePackSerializer<W>
 where
-    W: WriteSlices,
+    W: WriteSlices + std::io::Seek,
 {
     #[inline]
     pub fn new(writer: W) -> Self {
@@ -276,7 +276,7 @@ pub struct Compound<'a, W> {
 
 impl<W> SerializeSeq for Compound<'_, W>
 where
-    W: WriteSlices,
+    W: WriteSlices + std::io::Seek,
 {
     type Ok = ();
     type Error = Error;
@@ -294,9 +294,35 @@ where
     }
 }
 
-impl<W> SerializeMap for Compound<'_, W>
+pub struct MapSerializer<'a, W> {
+    se: &'a mut MessagePackSerializer<W>,
+    max_len: usize,
+    header_pos: u64,
+    len: usize,
+}
+
+impl<'a, W> MapSerializer<'a, W>
 where
-    W: WriteSlices,
+    W: WriteSlices + std::io::Seek,
+{
+    pub fn new(
+        se: &'a mut MessagePackSerializer<W>,
+        max_len: usize,
+    ) -> Result<Self, std::io::Error> {
+        let header_pos = se.writer.stream_position()?;
+        msgpack::write_map_len(&mut se.writer, max_len, max_len)?;
+        Ok(Self {
+            se,
+            max_len,
+            header_pos,
+            len: 0,
+        })
+    }
+}
+
+impl<W> SerializeMap for MapSerializer<'_, W>
+where
+    W: WriteSlices + std::io::Seek,
 {
     type Ok = ();
     type Error = Error;
@@ -305,6 +331,7 @@ where
     where
         T: ?Sized + Serialize,
     {
+        self.len += 1;
         key.serialize(&mut *self.se)
     }
 
@@ -317,13 +344,20 @@ where
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
         self.se.recursion -= 1;
+        if self.len < self.max_len {
+            self.se
+                .writer
+                .seek(std::io::SeekFrom::Start(self.header_pos))?;
+            msgpack::write_map_len(&mut self.se.writer, self.len, self.max_len)?;
+            self.se.writer.seek(std::io::SeekFrom::End(0))?;
+        }
         Ok(())
     }
 }
 
 impl<'a, W> Serializer for &'a mut MessagePackSerializer<W>
 where
-    W: WriteSlices,
+    W: WriteSlices + std::io::Seek,
 {
     type Ok = ();
     type Error = Error;
@@ -332,7 +366,7 @@ where
     type SerializeTuple = Impossible<(), Error>;
     type SerializeTupleStruct = Impossible<(), Error>;
     type SerializeTupleVariant = Impossible<(), Error>;
-    type SerializeMap = Compound<'a, W>;
+    type SerializeMap = MapSerializer<'a, W>;
     type SerializeStruct = Impossible<(), Error>;
     type SerializeStructVariant = Impossible<(), Error>;
 
@@ -506,8 +540,7 @@ where
                 }
 
                 self.recursion += 1;
-                msgpack::write_map_len(&mut self.writer, len)?;
-                Ok(Compound { se: self })
+                Ok(MapSerializer::new(self, len)?)
             }
             None => unreachable!(),
         }
