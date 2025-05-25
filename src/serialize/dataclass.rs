@@ -8,7 +8,6 @@ use crate::typeref::*;
 
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
-use smallvec::SmallVec;
 use std::ptr::NonNull;
 
 pub struct Dataclass {
@@ -66,8 +65,7 @@ impl Serialize for Dataclass {
             }
         };
 
-        let mut items: SmallVec<[(&str, *mut pyo3::ffi::PyObject); 8]> =
-            SmallVec::with_capacity(len);
+        let mut map = serializer.serialize_map(Some(len)).unwrap();
         for (attr, field) in PyDictIter::from_pyobject(fields) {
             let data = unicode_to_str(attr.as_ptr());
             if unlikely!(data.is_none()) {
@@ -78,35 +76,28 @@ impl Serialize for Dataclass {
                 continue;
             }
 
-            if unlikely!(dict.is_null()) {
-                if !is_pseudo_field(field.as_ptr()) {
-                    let value = ffi!(PyObject_GetAttr(self.ptr, attr.as_ptr()));
-                    ffi!(Py_DECREF(value));
-                    items.push((key_as_str, value));
-                }
+            let mut value = if unlikely!(dict.is_null()) {
+                std::ptr::null_mut()
             } else {
-                let value = ffi!(PyDict_GetItem(dict, attr.as_ptr()));
-                if !value.is_null() {
-                    items.push((key_as_str, value));
-                } else if !is_pseudo_field(field.as_ptr()) {
-                    let value = ffi!(PyObject_GetAttr(self.ptr, attr.as_ptr()));
+                ffi!(PyDict_GetItem(dict, attr.as_ptr()))
+            };
+            if value.is_null() {
+                if !is_pseudo_field(field.as_ptr()) {
+                    value = ffi!(PyObject_GetAttr(self.ptr, attr.as_ptr()));
                     ffi!(Py_DECREF(value));
-                    items.push((key_as_str, value));
                 }
             }
-        }
-
-        let mut map = serializer.serialize_map(Some(items.len())).unwrap();
-        for (key, value) in items.iter() {
-            let pyvalue = PyObject::new(
-                *value,
-                self.opts,
-                self.default_calls,
-                self.recursion + 1,
-                self.default,
-            );
-            map.serialize_key(key).unwrap();
-            map.serialize_value(&pyvalue)?
+            if !value.is_null() {
+                let pyvalue = PyObject::new(
+                    value,
+                    self.opts,
+                    self.default_calls,
+                    self.recursion + 1,
+                    self.default,
+                );
+                map.serialize_key(key_as_str).unwrap();
+                map.serialize_value(&pyvalue)?
+            }
         }
         map.end()
     }
