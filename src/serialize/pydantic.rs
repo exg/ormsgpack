@@ -64,14 +64,57 @@ impl Drop for PydanticModel {
 }
 
 impl Serialize for PydanticModel {
+    #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let len = unsafe { pydict_size(self.ptr) } as usize;
-        if unlikely!(len == 0) {
-            return serializer.serialize_map(Some(0)).unwrap().end();
+        if unlikely!(unsafe { pydict_size(self.ptr) } == 0) {
+            serializer.serialize_map(Some(0)).unwrap().end()
+        } else if self.opts & SORT_KEYS == 0 {
+            self.serialize_with_unsorted_keys(serializer)
+        } else {
+            self.serialize_with_sorted_keys(serializer)
         }
+    }
+}
+
+impl PydanticModel {
+    #[inline(always)]
+    fn serialize_with_unsorted_keys<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let len = unsafe { pydict_size(self.ptr) } as usize;
+        let mut map = serializer.serialize_map(Some(len)).unwrap();
+        for (key, value) in PyDictIter::from_pyobject(self.ptr) {
+            if unlikely!(ob_type!(key.as_ptr()) != &raw mut pyo3::ffi::PyUnicode_Type) {
+                return Err(serde::ser::Error::custom(KEY_MUST_BE_STR));
+            }
+            let key_as_str = unicode_to_str(key.as_ptr()).map_err(serde::ser::Error::custom)?;
+            if unlikely!(key_as_str.as_bytes()[0] == b'_') {
+                continue;
+            }
+            let pyvalue = PyObject::new(
+                value.as_ptr(),
+                self.state,
+                self.opts,
+                self.default_calls,
+                self.recursion + 1,
+                self.default,
+            );
+            map.serialize_key(key_as_str).unwrap();
+            map.serialize_value(&pyvalue)?;
+        }
+        map.end()
+    }
+
+    #[inline(never)]
+    fn serialize_with_sorted_keys<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let len = unsafe { pydict_size(self.ptr) } as usize;
         let mut items: SmallVec<[(&str, *mut pyo3::ffi::PyObject); 8]> =
             SmallVec::with_capacity(len);
         for (key, value) in PyDictIter::from_pyobject(self.ptr) {
@@ -85,9 +128,7 @@ impl Serialize for PydanticModel {
             items.push((key_as_str, value.as_ptr()));
         }
 
-        if self.opts & SORT_KEYS != 0 {
-            items.sort_unstable_by(|a, b| a.0.cmp(b.0));
-        }
+        items.sort_unstable_by(|a, b| a.0.cmp(b.0));
 
         let mut map = serializer.serialize_map(Some(items.len())).unwrap();
         for (key, value) in items.iter() {
