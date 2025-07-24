@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
 use crate::ffi::*;
-use crate::typeref::*;
-use once_cell::unsync::OnceCell;
+use ahash::RandomState;
 use simdutf8::basic::{from_utf8, Utf8Error};
 use std::hash::BuildHasher;
 use std::hash::Hasher;
@@ -35,6 +34,7 @@ impl Drop for CachedKey {
 
 pub struct KeyMap<const C: usize> {
     entries: Vec<Option<CachedKey>>,
+    random_state: RandomState,
 }
 
 impl<const C: usize> KeyMap<C> {
@@ -43,12 +43,15 @@ impl<const C: usize> KeyMap<C> {
         for _ in 0..C {
             entries.push(None);
         }
-        KeyMap { entries: entries }
+        KeyMap {
+            entries: entries,
+            random_state: RandomState::new(),
+        }
     }
 
     pub fn get(&mut self, key: &[u8]) -> Result<NonNull<pyo3::ffi::PyObject>, Utf8Error> {
-        let mut hasher = unsafe { HASH_BUILDER.get().unwrap().build_hasher() };
         let hash = {
+            let mut hasher = self.random_state.build_hasher();
             hasher.write(key);
             hasher.finish()
         } as usize;
@@ -68,5 +71,3 @@ impl<const C: usize> KeyMap<C> {
         unsafe { Ok(NonNull::new_unchecked(entry.get())) }
     }
 }
-
-pub static mut KEY_MAP: OnceCell<KeyMap<512>> = OnceCell::new();

@@ -1,7 +1,7 @@
+use crate::context::Context;
 use crate::ffi::*;
 use crate::opt::*;
 use crate::serialize::datetimelike::NaiveDateTime;
-use crate::typeref::{ARRAY_STRUCT_STR, DESCR_STR, DTYPE_STR};
 use chrono::{DateTime, NaiveDate};
 use pyo3::ffi::*;
 use serde::ser::{Serialize, SerializeSeq, Serializer};
@@ -49,11 +49,15 @@ enum ItemType {
 }
 
 impl ItemType {
-    fn find(array: *mut PyArrayInterface, ptr: *mut PyObject) -> Option<ItemType> {
+    fn find(
+        array: *mut PyArrayInterface,
+        ptr: *mut PyObject,
+        context: *mut Context,
+    ) -> Option<ItemType> {
         match unsafe { ((*array).typekind, (*array).itemsize) } {
             (098, 1) => Some(ItemType::BOOL),
             (077, 8) => {
-                let unit = NumpyDatetimeUnit::from_pyobject(ptr);
+                let unit = NumpyDatetimeUnit::from_pyobject(ptr, context);
                 Some(ItemType::DATETIME64(unit))
             }
             (102, 2) => Some(ItemType::F16),
@@ -231,9 +235,9 @@ pub struct NumpyArray {
 
 impl NumpyArray {
     #[inline(never)]
-    pub fn new(ptr: *mut PyObject, opts: Opt) -> Result<Self, PyArrayError> {
+    pub fn new(ptr: *mut PyObject, context: *mut Context, opts: Opt) -> Result<Self, PyArrayError> {
         unsafe {
-            let capsule = PyObject_GetAttr(ptr, ARRAY_STRUCT_STR);
+            let capsule = PyObject_GetAttr(ptr, (*context).array_struct_str);
             let array = (*capsule.cast::<PyCapsule>())
                 .pointer
                 .cast::<PyArrayInterface>();
@@ -250,7 +254,7 @@ impl NumpyArray {
                 Py_DECREF(capsule);
                 return Err(PyArrayError::UnsupportedDataType);
             }
-            match ItemType::find(array, ptr) {
+            match ItemType::find(array, ptr, context) {
                 None => {
                     Py_DECREF(capsule);
                     Err(PyArrayError::UnsupportedDataType)
@@ -405,10 +409,10 @@ impl NumpyDatetimeUnit {
     /// object rather than using the `descr` field of the `__array_struct__`
     /// because that field isn't populated for datetime64 arrays; see
     /// https://github.com/numpy/numpy/issues/5350.
-    fn from_pyobject(ptr: *mut PyObject) -> Self {
+    fn from_pyobject(ptr: *mut PyObject, context: *mut Context) -> Self {
         let uni = unsafe {
-            let dtype = PyObject_GetAttr(ptr, DTYPE_STR);
-            let descr = PyObject_GetAttr(dtype, DESCR_STR);
+            let dtype = PyObject_GetAttr(ptr, (*context).dtype_str);
+            let descr = PyObject_GetAttr(dtype, (*context).descr_str);
             let el0 = PyList_GET_ITEM(descr, 0);
             let descr_str = pytuple_get_item(el0, 1);
             let uni = unicode_to_str(descr_str).unwrap();
@@ -559,12 +563,13 @@ struct NumpyDatetime64Object {
 
 pub struct NumpyDatetime64 {
     ptr: *mut PyObject,
+    context: *mut Context,
     opts: Opt,
 }
 
 impl NumpyDatetime64 {
-    pub fn new(ptr: *mut PyObject, opts: Opt) -> Self {
-        NumpyDatetime64 { ptr, opts }
+    pub fn new(ptr: *mut PyObject, context: *mut Context, opts: Opt) -> Self {
+        NumpyDatetime64 { ptr, context, opts }
     }
 }
 
@@ -573,7 +578,7 @@ impl Serialize for NumpyDatetime64 {
     where
         S: Serializer,
     {
-        let unit = NumpyDatetimeUnit::from_pyobject(self.ptr);
+        let unit = NumpyDatetimeUnit::from_pyobject(self.ptr, self.context);
         let value = unsafe { (*self.ptr.cast::<NumpyDatetime64Object>()).value };
         unit.datetime(value, self.opts)
             .map_err(serde::ser::Error::custom)?
