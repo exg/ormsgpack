@@ -1,17 +1,14 @@
 # ormsgpack
 
-![PyPI](https://img.shields.io/pypi/v/ormsgpack)
+![PyPI - Version](https://img.shields.io/pypi/v/ormsgpack)
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/ormsgpack)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/ormsgpack)
 
-ormsgpack is a fast msgpack serialization library for Python derived
+ormsgpack is a fast MessagePack serialization library for Python derived
 from [orjson](https://github.com/ijl/orjson), with native support for
 various Python types.
 
-ormsgpack supports the following Python implementations:
-
-- CPython 3.10, 3.11, 3.12, 3.13 and 3.14
-- PyPy 3.11
-- GraalPy 3.11
+ormsgpack supports CPython, PyPy and GraalPy.
 
 Releases follow semantic versioning and serializing a new object type
 without an opt-in flag is considered a breaking change.
@@ -23,14 +20,13 @@ submitted there. There is a
 [CHANGELOG](https://github.com/aviramha/ormsgpack/blob/master/CHANGELOG.md)
 available in the repository.
 
-1. [Usage](#usage)
-    1. [Install](#install)
-    2. [Quickstart](#quickstart)
-    3. [Serialize](#serialize)
-        1. [default](#default)
-        2. [option](#option)
-    4. [Deserialize](#deserialize)
-2. [Types](#types)
+1. [Installation](#installation)
+2. [Usage](#usage)
+    1. [Serialization](#serialization)
+        1. [options](#serialization-options)
+    2. [Deserialization](#deserialization)
+        1. [options](#deserialization-options)
+3. [Types](#types)
    - [none](#none)
    - [bool](#bool)
    - [int](#int)
@@ -48,24 +44,25 @@ available in the repository.
    - [uuid](#uuid)
    - [numpy](#numpy)
    - [pydantic](#pydantic)
-3. [Questions](#questions)
-4. [Packaging](#packaging)
-5. [License](#license)
+4. [License](#license)
 
-## Usage
+## Installation
 
-### Install
-
-To install a wheel from PyPI:
-
+pip
 ```sh
-pip install --upgrade "pip>=20.3" # manylinux_x_y, universal2 wheel support
-pip install --upgrade ormsgpack
+pip install ormsgpack
 ```
 
-To build a wheel, see [packaging](#packaging).
+uv
+```
+uv add ormsgpack
+```
 
-### Quickstart
+Installing from a source distribution requires
+[Rust](https://www.rust-lang.org/) 1.81 or newer and
+[maturin](https://github.com/PyO3/maturin).
+
+## Usage
 
 This is an example of serializing, with options specified, and deserializing:
 
@@ -83,48 +80,37 @@ b'\x84\xa4type\xa3job\xaacreated_at\xb91970-01-01T00:00:00+00:00\xa6status\xa4\x
 {'type': 'job', 'created_at': '1970-01-01T00:00:00+00:00', 'status': '🆗', 'payload': [[1, 2], [3, 4]]}
 ```
 
-### Serialize
+### Serialization
 
 ```python
-def packb(
-    __obj: Any,
-    default: Optional[Callable[[Any], Any]] = ...,
-    option: Optional[int] = ...,
-) -> bytes: ...
+packb(
+    obj: Any,
+    /,
+    default: Callable[[Any], Any] | None = None,
+    option: int | None = None,
+) -> bytes
 ```
 
-`packb()` serializes Python objects to msgpack.
-It natively serializes various Python [types](#Types) and supports
-arbitrary types through the [default](#default) argument.
-The output is a `bytes` object.
+`packb()` serializes a Python object to a `bytes` object in MessagePack format.
 
 The global interpreter lock (GIL) is held for the duration of the call.
 
-It raises `MsgpackEncodeError` on an unsupported type. This exception
-describes the invalid object with the error message `Type is not
-msgpack serializable: ...`.
+`packb()` raises `MsgpackEncodeError` (a subclass of `TypeError`) if
 
-It raises `MsgpackEncodeError` if a `str` instance contains surrogate code points.
+- an object is of an unsupported type
+- a `str` instance contains surrogate code points, unless [`OPT_REPLACE_SURROGATES`](#OPT_REPLACE_SURROGATES) is specified
+- a `dict` key is of a type other than `str` or `bytes`, unless [`OPT_NON_STR_KEYS`](#OPT_NON_STR_KEYS) is specified
+- `default` is called recursively more than 254 times
+- an object contains a circular reference
+- the `tzinfo` attribute of a datetime object is of an unsupported type
 
-It raises `MsgpackEncodeError` if a `dict` has a key of a type other than `str` or `bytes`,
-unless [`OPT_NON_STR_KEYS`](#OPT_NON_STR_KEYS) is specified.
-
-It raises `MsgpackEncodeError` if the output of `default` recurses to handling by
-`default` more than 254 levels deep.
-
-It raises `MsgpackEncodeError` on circular references.
-
-It raises `MsgpackEncodeError`  if a `tzinfo` on a datetime object is
-unsupported.
-
-`MsgpackEncodeError` is a subclass of `TypeError`.
-
-#### default
-
-To serialize a subclass or arbitrary types, specify `default` as a
-callable that returns a supported type. `default` may be a function,
-lambda, or callable class instance. To specify that a type was not
-handled by `default`, raise an exception such as `TypeError`.
+The `default` argument, if set, should be a callable object and is
+called to serialize objects that are not natively serializable.
+`default` is called with one argument, an object to serialize, and its
+return value is used as the serializable representation of the object.
+If the return value is not serializable, `default` is called
+recursively, up to 254 times. See section [types](#Types) for
+the list of supported types.
 
 ```python
 >>> import ormsgpack, decimal
@@ -141,13 +127,10 @@ b'\xb80.0842389659712649442845'
 TypeError: Type is not msgpack serializable: set
 ```
 
-The `default` callable may return an object that itself
-must be handled by `default` up to 254 times before an exception
-is raised.
-
-It is important that `default` raise an exception if a type cannot be handled.
-Python otherwise implicitly returns `None`, which appears to the caller
-like a legitimate value and is serialized:
+If an object is of an unsupported type, `default` should raise an
+exception. Otherwise, the object is serialized as `None`, because of
+Python implicit [call return
+value](https://docs.python.org/3/reference/expressions.html#calls):
 
 ```python
 >>> import ormsgpack, decimal
@@ -180,11 +163,12 @@ b'\xc7\x18\x000.0842389659712649442845'
 `default` can also be used to serialize some supported types to a custom
 format by enabling the corresponding passthrough options.
 
-#### option
+The `option`argument, if set, should be an integer representing one or
+more serialization options. Options can be combined using the bitwise
+OR operator (`|`), e.g., `ormsgpack.OPT_NON_STR_KEYS
+| ormsgpack.OPT_NAIVE_UTC`.
 
-To modify how data is serialized, specify `option`. Each `option` is an integer
-constant in `ormsgpack`. To specify multiple options, mask them together, e.g.,
-`option=ormsgpack.OPT_NON_STR_KEYS | ormsgpack.OPT_NAIVE_UTC`.
+#### Serialization options
 
 ##### `OPT_DATETIME_AS_TIMESTAMP_EXT`
 
@@ -242,7 +226,7 @@ b'\x81\xb91970-01-01T00:00:00+00:00\x93\x01\x02\x03'
 
 Be aware that, when using this option, a serialized map may contain
 elements with the same key, as different `dict` keys may be serialized
-to the same object. In such a case, a msgpack deserializer will
+to the same object. In such a case, a MessagePack deserializer will
 presumably keep only one element for any given key. For example,
 
 ```python
@@ -464,38 +448,30 @@ b'\xb91970-01-01T00:00:00+00:00'
 b'\xb41970-01-01T00:00:00Z'
 ```
 
-### Deserialize
+### Deserialization
 
 ```python
-def unpackb(
-    __obj: Union[bytes, bytearray, memoryview],
+unpackb(
+    obj: bytes | bytearray | memoryview,
     /,
-    ext_hook: Optional[Callable[[int, bytes], Any]] = ...,
-    option: Optional[int] = ...,
-) -> Any: ...
+    *,
+    ext_hook: Callable[[int, bytes], Any] | None = None,
+    option: int | None = None,
+) -> Any
 ```
 
-`unpackb()` deserializes msgpack to Python objects. It deserializes to `dict`,
-`list`, `int`, `float`, `str`, `bool`, `bytes` and `None` objects.
-
-`bytes`, `bytearray`, `memoryview` input are accepted.
-
-ormsgpack maintains a cache of map keys for the duration of the process. This
-causes a net reduction in memory usage by avoiding duplicate strings. The
-keys must be at most 64 bytes to be cached and 512 entries are stored.
+`unpackb()` deserializes a `bytes`, `bytearray` or `memoryview` object
+in MessagePack format to a Python object.
 
 The global interpreter lock (GIL) is held for the duration of the call.
 
-It raises `MsgpackDecodeError` if given an invalid type or invalid
-msgpack.
+`unpackb()` raises `MsgpackDecodeError` (a subclass of `ValueError`) if
+the object is of an unsupported type or is not valid MessagePack.
 
-`MsgpackDecodeError` is a subclass of `ValueError`.
-
-#### ext_hook
-
-To deserialize extension types, specify the optional `ext_hook`
-argument. The value should be a callable and is invoked with the
-extension type and value as arguments.
+The `ext_hook` argument, if set, should be a callable object and is
+called to deserialize extension types. `ext_hook` is called with two
+arguments, the extension type and value, and its return value is used
+as the deserialized object.
 
 ```python
 >>> import ormsgpack, decimal
@@ -512,7 +488,10 @@ b'\xc7\x18\x000.0842389659712649442845'
 Decimal('0.0842389659712649442845'
 ```
 
-#### option
+The `option`argument, if set, should be an integer representing one or
+more deserialization options.
+
+#### Deserialization options
 
 ##### `OPT_DATETIME_AS_TIMESTAMP_EXT`
 
@@ -749,33 +728,6 @@ This is equivalent to serializing
 
 The serialization of pydantic models is disabled by default and can be
 enabled by using the [`OPT_SERIALIZE_PYDANTIC`](#OPT_SERIALIZE_PYDANTIC) option.
-
-## Questions
-
-### Why can't I install it from PyPI?
-
-Probably `pip` needs to be upgraded to version 20.3 or later to support
-the latest manylinux_x_y or universal2 wheel formats.
-
-### Will it deserialize to dataclasses, UUIDs, decimals, etc or support object_hook?
-
-No. This requires a schema specifying what types are expected and how to
-handle errors etc. This is addressed by data validation libraries a
-level above this.
-
-## Packaging
-
-To package ormsgpack requires [Rust](https://www.rust-lang.org/) 1.81
-or newer and the [maturin](https://github.com/PyO3/maturin) build
-tool. The recommended build command is:
-
-```sh
-maturin build --release
-```
-
-ormsgpack is tested on Linux/amd64, Linux/aarch64, Linux/armv7, macOS/aarch64 and Windows/amd64.
-
-There are no runtime dependencies other than libc.
 
 ## License
 
