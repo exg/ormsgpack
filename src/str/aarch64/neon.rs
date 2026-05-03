@@ -10,6 +10,8 @@ use std::arch::aarch64::{
     vdupq_n_u8,
     vld1q_u8,
     vld1q_u8_x4,
+    vmaxq_u8,
+    vmaxvq_u8,
     vreinterpretq_s8_u8,
     vsubq_u8,
 };
@@ -54,6 +56,18 @@ impl U8x16 {
     #[inline]
     pub fn reduce_sum(&self) -> usize {
         vaddlvq_u8(self.0).into()
+    }
+
+    #[target_feature(enable = "neon")]
+    #[inline]
+    pub fn max(&self, other: &Self) -> Self {
+        Self(vmaxq_u8(self.0, other.0))
+    }
+
+    #[target_feature(enable = "neon")]
+    #[inline]
+    pub fn reduce_max(&self) -> u8 {
+        vmaxvq_u8(self.0)
     }
 }
 
@@ -105,6 +119,24 @@ impl U8x64 {
     #[inline]
     pub fn reduce_sum(&self) -> usize {
         (vaddlvq_u8(self.0) + vaddlvq_u8(self.1) + vaddlvq_u8(self.2) + vaddlvq_u8(self.3)).into()
+    }
+
+    #[target_feature(enable = "neon")]
+    #[inline]
+    pub fn max(&self, other: &Self) -> Self {
+        Self(
+            vmaxq_u8(self.0, other.0),
+            vmaxq_u8(self.1, other.1),
+            vmaxq_u8(self.2, other.2),
+            vmaxq_u8(self.3, other.3),
+        )
+    }
+
+    #[target_feature(enable = "neon")]
+    #[inline]
+    pub fn reduce_max(&self) -> u8 {
+        let v = vmaxq_u8(vmaxq_u8(self.0, self.1), vmaxq_u8(self.2, self.3));
+        vmaxvq_u8(v)
     }
 }
 

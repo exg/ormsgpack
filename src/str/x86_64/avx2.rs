@@ -8,13 +8,21 @@ use std::arch::x86_64::{
     _mm256_cmpgt_epi8,
     _mm256_extracti128_si256,
     _mm256_loadu_si256,
+    _mm256_max_epu8,
     _mm256_sad_epu8,
     _mm256_set1_epi8,
     _mm256_setzero_si256,
     _mm256_sub_epi8,
     _mm_add_epi64,
+    _mm_cmpeq_epi32,
     _mm_cvtsi128_si64,
+    _mm_max_epu8,
+    _mm_min_epu8,
+    _mm_minpos_epu16,
+    _mm_setzero_si128,
+    _mm_srli_epi16,
     _mm_srli_si128,
+    _mm_xor_si128,
 };
 
 #[target_feature(enable = "avx2")]
@@ -27,6 +35,17 @@ fn reduce_sum(a: __m256i) -> usize {
     );
     let sum = _mm_add_epi64(sums2, _mm_srli_si128(sums2, 8));
     _mm_cvtsi128_si64(sum) as usize
+}
+
+#[target_feature(enable = "avx2")]
+#[inline]
+fn reduce_max(a: __m256i) -> u8 {
+    let max = _mm_max_epu8(_mm256_castsi256_si128(a), _mm256_extracti128_si256(a, 1));
+    let mask = _mm_cmpeq_epi32(_mm_setzero_si128(), _mm_setzero_si128());
+    let mut min = _mm_xor_si128(max, mask);
+    min = _mm_min_epu8(min, _mm_srli_epi16(min, 8));
+    min = _mm_minpos_epu16(min);
+    !(_mm_cvtsi128_si64(min) as u8)
 }
 
 pub struct U8x32(__m256i);
@@ -73,6 +92,18 @@ impl U8x32 {
     pub fn reduce_sum(&self) -> usize {
         reduce_sum(self.0).into()
     }
+
+    #[target_feature(enable = "avx2")]
+    #[inline]
+    pub fn max(&self, other: &Self) -> Self {
+        Self(_mm256_max_epu8(self.0, other.0))
+    }
+
+    #[target_feature(enable = "avx2")]
+    #[inline]
+    pub fn reduce_max(&self) -> u8 {
+        reduce_max(self.0)
+    }
 }
 
 pub struct U8x64(__m256i, __m256i);
@@ -116,6 +147,22 @@ impl U8x64 {
     #[inline]
     pub fn reduce_sum(&self) -> usize {
         (reduce_sum(self.0) + reduce_sum(self.1)).into()
+    }
+
+    #[target_feature(enable = "avx2")]
+    #[inline]
+    pub fn max(&self, other: &Self) -> Self {
+        Self(
+            _mm256_max_epu8(self.0, other.0),
+            _mm256_max_epu8(self.1, other.1),
+        )
+    }
+
+    #[target_feature(enable = "avx2")]
+    #[inline]
+    pub fn reduce_max(&self) -> u8 {
+        let v = _mm256_max_epu8(self.0, self.1);
+        reduce_max(v)
     }
 }
 

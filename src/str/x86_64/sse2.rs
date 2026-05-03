@@ -8,6 +8,7 @@ use std::arch::x86_64::{
     _mm_cmpgt_epi8,
     _mm_cvtsi128_si64,
     _mm_loadu_si128,
+    _mm_max_epu8,
     _mm_sad_epu8,
     _mm_set1_epi8,
     _mm_setzero_si128,
@@ -21,6 +22,17 @@ fn reduce_sum(a: __m128i) -> usize {
     let sums = _mm_sad_epu8(a, _mm_setzero_si128());
     let sum = _mm_add_epi64(sums, _mm_srli_si128(sums, 8));
     _mm_cvtsi128_si64(sum) as usize
+}
+
+#[target_feature(enable = "sse2")]
+#[inline]
+fn reduce_max(a: __m128i) -> u8 {
+    let mut max = a;
+    max = _mm_max_epu8(max, _mm_srli_si128(max, 8));
+    max = _mm_max_epu8(max, _mm_srli_si128(max, 4));
+    max = _mm_max_epu8(max, _mm_srli_si128(max, 2));
+    max = _mm_max_epu8(max, _mm_srli_si128(max, 1));
+    _mm_cvtsi128_si64(max) as u8
 }
 
 pub struct U8x16(__m128i);
@@ -66,6 +78,18 @@ impl U8x16 {
     #[inline]
     pub fn reduce_sum(&self) -> usize {
         reduce_sum(self.0).into()
+    }
+
+    #[target_feature(enable = "sse2")]
+    #[inline]
+    pub fn max(&self, other: &Self) -> Self {
+        Self(_mm_max_epu8(self.0, other.0))
+    }
+
+    #[target_feature(enable = "sse2")]
+    #[inline]
+    pub fn reduce_max(&self) -> u8 {
+        reduce_max(self.0)
     }
 }
 
@@ -122,6 +146,24 @@ impl U8x64 {
     #[inline]
     pub fn reduce_sum(&self) -> usize {
         (reduce_sum(self.0) + reduce_sum(self.1) + reduce_sum(self.2) + reduce_sum(self.3)).into()
+    }
+
+    #[target_feature(enable = "sse2")]
+    #[inline]
+    pub fn max(&self, other: &Self) -> Self {
+        Self(
+            _mm_max_epu8(self.0, other.0),
+            _mm_max_epu8(self.1, other.1),
+            _mm_max_epu8(self.2, other.2),
+            _mm_max_epu8(self.3, other.3),
+        )
+    }
+
+    #[target_feature(enable = "sse2")]
+    #[inline]
+    pub fn reduce_max(&self) -> u8 {
+        let v = _mm_max_epu8(_mm_max_epu8(self.0, self.1), _mm_max_epu8(self.2, self.3));
+        reduce_max(v)
     }
 }
 
