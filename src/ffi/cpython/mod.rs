@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
+use crate::ffi::OwnedPyObject;
 use pyo3::ffi::*;
+use std::ptr::NonNull;
 
 mod int;
 mod unicode;
@@ -23,16 +25,19 @@ pub unsafe fn pydict_size(mp: *mut PyObject) -> Py_ssize_t {
 }
 
 #[inline(always)]
-pub unsafe fn pyobject_call_one_arg(func: *mut PyObject, arg: *mut PyObject) -> *mut PyObject {
-    PyObject_CallOneArg(func, arg)
+pub unsafe fn pyobject_call_one_arg(
+    func: *mut PyObject,
+    arg: *mut PyObject,
+) -> Option<OwnedPyObject> {
+    NonNull::new(PyObject_CallOneArg(func, arg)).map(OwnedPyObject::from_non_null)
 }
 
 #[inline(always)]
 pub unsafe fn pyobject_call_method_no_args(
     self_: *mut PyObject,
     name: *mut PyObject,
-) -> *mut PyObject {
-    PyObject_CallMethodNoArgs(self_, name)
+) -> Option<OwnedPyObject> {
+    NonNull::new(PyObject_CallMethodNoArgs(self_, name)).map(OwnedPyObject::from_non_null)
 }
 
 #[inline(always)]
@@ -40,8 +45,8 @@ pub unsafe fn pyobject_call_method_one_arg(
     self_: *mut PyObject,
     name: *mut PyObject,
     arg: *mut PyObject,
-) -> *mut PyObject {
-    PyObject_CallMethodOneArg(self_, name, arg)
+) -> Option<OwnedPyObject> {
+    NonNull::new(PyObject_CallMethodOneArg(self_, name, arg)).map(OwnedPyObject::from_non_null)
 }
 
 #[inline(always)]

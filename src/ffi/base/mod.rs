@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
+use crate::ffi::OwnedPyObject;
 use pyo3::ffi::*;
 use std::os::raw::c_int;
+use std::ptr::NonNull;
 
 mod int;
 mod unicode;
@@ -19,16 +21,29 @@ pub unsafe fn pydict_size(mp: *mut PyObject) -> Py_ssize_t {
 }
 
 #[inline(always)]
-pub unsafe fn pyobject_call_one_arg(func: *mut PyObject, arg: *mut PyObject) -> *mut PyObject {
-    PyObject_CallFunctionObjArgs(func, arg, std::ptr::null_mut::<PyObject>())
+pub unsafe fn pyobject_call_one_arg(
+    func: *mut PyObject,
+    arg: *mut PyObject,
+) -> Option<OwnedPyObject> {
+    NonNull::new(PyObject_CallFunctionObjArgs(
+        func,
+        arg,
+        std::ptr::null_mut::<PyObject>(),
+    ))
+    .map(OwnedPyObject::from_non_null)
 }
 
 #[inline(always)]
 pub unsafe fn pyobject_call_method_no_args(
     self_: *mut PyObject,
     name: *mut PyObject,
-) -> *mut PyObject {
-    PyObject_CallMethodObjArgs(self_, name, std::ptr::null_mut::<PyObject>())
+) -> Option<OwnedPyObject> {
+    NonNull::new(PyObject_CallMethodObjArgs(
+        self_,
+        name,
+        std::ptr::null_mut::<PyObject>(),
+    ))
+    .map(OwnedPyObject::from_non_null)
 }
 
 #[inline(always)]
@@ -36,8 +51,14 @@ pub unsafe fn pyobject_call_method_one_arg(
     self_: *mut PyObject,
     name: *mut PyObject,
     arg: *mut PyObject,
-) -> *mut PyObject {
-    PyObject_CallMethodObjArgs(self_, name, arg, std::ptr::null_mut::<PyObject>())
+) -> Option<OwnedPyObject> {
+    NonNull::new(PyObject_CallMethodObjArgs(
+        self_,
+        name,
+        arg,
+        std::ptr::null_mut::<PyObject>(),
+    ))
+    .map(OwnedPyObject::from_non_null)
 }
 
 #[inline(always)]

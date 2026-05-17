@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
-use crate::ffi::PyObjectWithType;
+use crate::ffi::{pyobject_getattr, PyObjectWithType};
 use crate::opt::Opt;
 use crate::serialize::default::DefaultHook;
 use crate::serialize::serializer::{DictKey, PyObject as ObjectSerializer};
@@ -62,11 +62,9 @@ impl Serialize for Enum<'_> {
     where
         S: Serializer,
     {
-        let value = unsafe { PyObject_GetAttr(self.ptr, self.state.enum_.value_str) };
-        let result =
-            ObjectSerializer::new(value, self.state, self.opts, self.default).serialize(serializer);
-        unsafe { Py_DECREF(value) };
-        result
+        let value = unsafe { pyobject_getattr(self.ptr, self.state.enum_.value_str).unwrap() };
+        ObjectSerializer::new(value.as_ptr(), self.state, self.opts, self.default)
+            .serialize(serializer)
     }
 }
 
@@ -96,9 +94,7 @@ impl Serialize for EnumDictKey<'_> {
     where
         S: Serializer,
     {
-        let value = unsafe { PyObject_GetAttr(self.ptr, self.state.enum_.value_str) };
-        let result = DictKey::new(value, self.state, self.opts).serialize(serializer);
-        unsafe { Py_DECREF(value) };
-        result
+        let value = unsafe { pyobject_getattr(self.ptr, self.state.enum_.value_str).unwrap() };
+        DictKey::new(value.as_ptr(), self.state, self.opts).serialize(serializer)
     }
 }

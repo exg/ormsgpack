@@ -267,7 +267,7 @@ pub unsafe extern "C" fn unpackb(
     };
 
     match crate::deserialize::deserialize(*args, &state.deserialize, ext_hook, opts) {
-        Ok(val) => val.as_ptr(),
+        Ok(val) => val.into_ptr(),
         Err(err) => raise_unpackb_exception(state, &err.message),
     }
 }

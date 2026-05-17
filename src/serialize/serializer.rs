@@ -76,7 +76,8 @@ impl<'a> PyObject<'a> {
             .default
             .call(self.ptr)
             .map_err(serde::ser::Error::custom)?;
-        PyObject::new(call.result, self.state, self.opts, self.default).serialize(serializer)
+        PyObject::new(call.result.as_ptr(), self.state, self.opts, self.default)
+            .serialize(serializer)
     }
 
     #[inline(never)]

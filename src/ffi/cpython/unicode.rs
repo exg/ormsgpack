@@ -3,14 +3,15 @@
 #[cfg(unicode_state)]
 use crate::ffi::impl_::unicode_state::*;
 use crate::ffi::unicode::*;
+use crate::ffi::OwnedPyObject;
 use crate::str::count_chars;
 use crate::util::unlikely;
 use pyo3::ffi::*;
 
 // see unicodeobject.h for documentation
 
-pub fn unicode_from_str(buf: &str) -> *mut PyObject {
-    if buf.is_empty() {
+pub fn unicode_from_str(buf: &str) -> OwnedPyObject {
+    let ptr = if buf.is_empty() {
         unsafe { PyUnicode_New(0, 0) }
     } else {
         let num_chars = count_chars(buf.as_bytes());
@@ -26,7 +27,8 @@ pub fn unicode_from_str(buf: &str) -> *mut PyObject {
                 pyunicode_onebyte(buf, num_chars)
             }
         }
-    }
+    };
+    unsafe { OwnedPyObject::from_ptr(ptr) }
 }
 
 fn pyunicode_ascii(buf: &str) -> *mut PyObject {
