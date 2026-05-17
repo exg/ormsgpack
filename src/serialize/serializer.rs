@@ -75,14 +75,11 @@ impl<'a> PyObject<'a> {
     where
         S: Serializer,
     {
-        let obj = self
+        let call = self
             .default
-            .enter_call(self.ptr)
+            .call(self.ptr)
             .map_err(serde::ser::Error::custom)?;
-        let res = PyObject::new(obj, self.state, self.opts, self.default).serialize(serializer);
-        self.default.leave_call();
-        unsafe { pyo3::ffi::Py_DECREF(obj) };
-        res
+        PyObject::new(call.result, self.state, self.opts, self.default).serialize(serializer)
     }
 
     #[inline(never)]
