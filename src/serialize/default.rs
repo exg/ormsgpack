@@ -33,6 +33,25 @@ pub struct DefaultHook<'a> {
     recursion: Cell<u8>,
 }
 
+pub struct DefaultHookCall<'a, 'py> {
+    hook: &'a DefaultHook<'py>,
+    result: Option<OwnedPyObject>,
+}
+
+impl DefaultHookCall<'_, '_> {
+    pub fn result(&self) -> &OwnedPyObject {
+        self.result.as_ref().unwrap()
+    }
+}
+
+impl Drop for DefaultHookCall<'_, '_> {
+    fn drop(&mut self) {
+        drop(self.result.take());
+        let recursion = self.hook.recursion.get();
+        self.hook.recursion.set(recursion - 1);
+    }
+}
+
 impl<'a> DefaultHook<'a> {
     pub fn new(default: Option<BorrowedPyObject<'a>>) -> Self {
         DefaultHook {
@@ -41,22 +60,24 @@ impl<'a> DefaultHook<'a> {
         }
     }
 
-    pub fn enter_call(&self, obj: BorrowedPyObject<'a>) -> Result<OwnedPyObject, Error<'a>> {
+    pub fn call(&self, obj: BorrowedPyObject<'a>) -> Result<DefaultHookCall<'_, 'a>, Error<'a>> {
         match self.inner {
             Some(callable) => {
                 let recursion = self.recursion.get();
                 if unlikely(recursion == RECURSION_LIMIT) {
                     return Err(Error::RecursionLimitReached);
                 }
-                self.recursion.set(recursion + 1);
-                callable.call_one_arg(obj).ok_or(Error::InvalidType(obj))
+                if let Some(result) = callable.call_one_arg(obj) {
+                    self.recursion.set(recursion + 1);
+                    Ok(DefaultHookCall {
+                        hook: self,
+                        result: Some(result),
+                    })
+                } else {
+                    Err(Error::InvalidType(obj))
+                }
             }
             None => Err(Error::InvalidType(obj)),
         }
-    }
-
-    pub fn leave_call(&self) {
-        let recursion = self.recursion.get();
-        self.recursion.set(recursion - 1);
     }
 }

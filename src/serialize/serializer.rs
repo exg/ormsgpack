@@ -72,14 +72,17 @@ impl<'a> PyObject<'a> {
     where
         S: Serializer,
     {
-        let obj = self
+        let call = self
             .default
-            .enter_call(self.obj)
+            .call(self.obj)
             .map_err(serde::ser::Error::custom)?;
-        let res = PyObject::new(obj.as_borrowed(), self.state, self.opts, self.default)
-            .serialize(serializer);
-        self.default.leave_call();
-        res
+        PyObject::new(
+            call.result().as_borrowed(),
+            self.state,
+            self.opts,
+            self.default,
+        )
+        .serialize(serializer)
     }
 
     #[inline(never)]
