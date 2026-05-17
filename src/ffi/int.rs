@@ -1,9 +1,18 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
+use crate::ffi::OwnedPyObject;
 use crate::util::unlikely;
 use pyo3::ffi::*;
 use serde::ser::{Serialize, Serializer};
 use std::ffi::{c_long, c_ulong};
+
+#[inline(always)]
+pub fn pylong_from_i64(value: i64) -> OwnedPyObject {
+    unsafe {
+        let ptr = PyLong_FromLongLong(value);
+        OwnedPyObject::from_ptr(ptr)
+    }
+}
 
 #[inline(always)]
 pub fn pylong_to_i64(op: *mut PyObject) -> Option<i64> {
@@ -20,6 +29,14 @@ pub fn pylong_to_i64(op: *mut PyObject) -> Option<i64> {
         } else {
             Some(value)
         }
+    }
+}
+
+#[inline(always)]
+pub fn pylong_from_u64(value: u64) -> OwnedPyObject {
+    unsafe {
+        let ptr = PyLong_FromUnsignedLongLong(value);
+        OwnedPyObject::from_ptr(ptr)
     }
 }
 

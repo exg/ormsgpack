@@ -50,32 +50,23 @@ impl Serialize for PydanticModel<'_> {
     where
         S: Serializer,
     {
-        let dict = unsafe { pyo3::ffi::PyObject_GetAttr(self.ptr, (*self.state).dict_str) };
-        if unlikely(dict.is_null()) {
-            unsafe { pyo3::ffi::PyErr_Clear() };
+        let maybe_dict = unsafe { pyobject_getattr(self.ptr, (*self.state).dict_str) };
+        let Some(dict) = maybe_dict else {
             return Err(serde::ser::Error::custom(
                 "Pydantic model must have __dict__ attribute",
             ));
-        }
+        };
 
-        let extra_dict =
-            unsafe { pyo3::ffi::PyObject_GetAttr(self.ptr, (*self.state).pydantic_extra_str) };
-        if extra_dict.is_null() {
-            unsafe { pyo3::ffi::PyErr_Clear() };
-            let res = self.serialize_with_no_extra(serializer, dict);
-            unsafe { pyo3::ffi::Py_DECREF(dict) };
-            res
-        } else {
-            let res = if ob_type!(extra_dict) == &raw mut pyo3::ffi::PyDict_Type {
-                self.serialize_with_extra(serializer, dict, extra_dict)
+        let maybe_extra_dict =
+            unsafe { pyobject_getattr(self.ptr, (*self.state).pydantic_extra_str) };
+        if let Some(extra_dict) = maybe_extra_dict {
+            if ob_type!(extra_dict.as_ptr()) == &raw mut pyo3::ffi::PyDict_Type {
+                self.serialize_with_extra(serializer, dict.as_ptr(), extra_dict.as_ptr())
             } else {
-                self.serialize_with_no_extra(serializer, dict)
-            };
-            unsafe {
-                pyo3::ffi::Py_DECREF(dict);
-                pyo3::ffi::Py_DECREF(extra_dict)
-            };
-            res
+                self.serialize_with_no_extra(serializer, dict.as_ptr())
+            }
+        } else {
+            self.serialize_with_no_extra(serializer, dict.as_ptr())
         }
     }
 }

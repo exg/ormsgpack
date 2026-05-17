@@ -13,6 +13,7 @@ pub use int::*;
 pub use unicode::*;
 
 use pyo3::ffi::*;
+use std::mem::ManuallyDrop;
 use std::ptr::NonNull;
 
 #[inline(always)]
@@ -86,5 +87,66 @@ impl Buffer {
 impl Drop for Buffer {
     fn drop(&mut self) {
         unsafe { PyBuffer_Release(&mut self.view) }
+    }
+}
+
+#[repr(transparent)]
+pub struct OwnedPyObject(NonNull<PyObject>);
+
+impl OwnedPyObject {
+    #[inline]
+    pub fn from_non_null(ptr: NonNull<PyObject>) -> Self {
+        Self(ptr)
+    }
+
+    #[inline]
+    pub unsafe fn from_ptr(ptr: *mut PyObject) -> Self {
+        Self(NonNull::new_unchecked(ptr))
+    }
+
+    #[inline]
+    pub fn as_ptr(&self) -> *mut PyObject {
+        self.0.as_ptr()
+    }
+
+    #[inline]
+    pub fn into_ptr(self) -> *mut PyObject {
+        ManuallyDrop::new(self).0.as_ptr()
+    }
+}
+
+impl Clone for OwnedPyObject {
+    #[inline]
+    fn clone(&self) -> Self {
+        unsafe { Py_INCREF(self.0.as_ptr()) }
+        Self(self.0)
+    }
+}
+
+impl Drop for OwnedPyObject {
+    #[inline]
+    fn drop(&mut self) {
+        unsafe { Py_DECREF(self.0.as_ptr()) }
+    }
+}
+
+#[inline]
+pub unsafe fn pyobject_getattr(op: *mut PyObject, name: *mut PyObject) -> Option<OwnedPyObject> {
+    let ptr = PyObject_GetAttr(op, name);
+    if let Some(ptr) = NonNull::new(ptr) {
+        Some(OwnedPyObject::from_non_null(ptr))
+    } else {
+        PyErr_Clear();
+        None
+    }
+}
+
+#[inline]
+pub fn pybytes_new(bytes: &[u8]) -> OwnedPyObject {
+    let ptr = bytes.as_ptr().cast();
+    let len = bytes.len() as pyo3::ffi::Py_ssize_t;
+    unsafe {
+        let ptr = pyo3::ffi::PyBytes_FromStringAndSize(ptr, len);
+        OwnedPyObject::from_ptr(ptr)
     }
 }

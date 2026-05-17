@@ -52,9 +52,8 @@ impl<'a> Dataclass<'a> {
 }
 
 fn is_pseudo_field(field: *mut pyo3::ffi::PyObject, state: *mut State) -> bool {
-    let field_type = unsafe { pyo3::ffi::PyObject_GetAttr(field, (*state).field_type_str) };
-    unsafe { pyo3::ffi::Py_DECREF(field_type) };
-    field_type != unsafe { (*state).dataclass_field_type }
+    let field_type = unsafe { pyobject_getattr(field, (*state).field_type_str).unwrap() };
+    field_type.as_ptr() != unsafe { (*state).dataclass_field_type }
 }
 
 impl Serialize for Dataclass<'_> {
@@ -63,45 +62,42 @@ impl Serialize for Dataclass<'_> {
         S: Serializer,
     {
         let fields =
-            unsafe { pyo3::ffi::PyObject_GetAttr(self.ptr, (*self.state).dataclass_fields_str) };
-        unsafe { pyo3::ffi::Py_DECREF(fields) };
-        let len = unsafe { pydict_size(fields) } as usize;
+            unsafe { pyobject_getattr(self.ptr, (*self.state).dataclass_fields_str).unwrap() };
+        let len = unsafe { pydict_size(fields.as_ptr()) } as usize;
         if unlikely(len == 0) {
             return serializer.serialize_map(Some(0))?.end();
         }
 
-        let dict = {
+        let maybe_dict = {
             let ob_type = ob_type!(self.ptr);
             if has_slots(ob_type, self.state) {
-                std::ptr::null_mut()
+                None
             } else {
-                let dict = unsafe { pyo3::ffi::PyObject_GetAttr(self.ptr, (*self.state).dict_str) };
-                unsafe { pyo3::ffi::Py_DECREF(dict) };
-                dict
+                Some(unsafe { pyobject_getattr(self.ptr, (*self.state).dict_str).unwrap() })
             }
         };
 
-        let mut items: SmallVec<[(&str, *mut pyo3::ffi::PyObject); 8]> =
-            SmallVec::with_capacity(len);
-        for (attr, field) in PyDictIter::from_pyobject(fields) {
+        let mut items: SmallVec<[(&str, OwnedPyObject); 8]> = SmallVec::with_capacity(len);
+        for (attr, field) in PyDictIter::from_pyobject(fields.as_ptr()) {
             let key_as_str = unicode_to_str(attr.as_ptr()).map_err(serde::ser::Error::custom)?;
             if key_as_str.as_bytes()[0] == b'_' {
                 continue;
             }
 
-            if unlikely(dict.is_null()) {
-                if !is_pseudo_field(field.as_ptr(), self.state) {
-                    let value = unsafe { pyo3::ffi::PyObject_GetAttr(self.ptr, attr.as_ptr()) };
-                    unsafe { pyo3::ffi::Py_DECREF(value) };
+            if let Some(dict) = &maybe_dict {
+                let mut value = std::ptr::null_mut();
+                unsafe {
+                    pyo3::ffi::compat::PyDict_GetItemRef(dict.as_ptr(), attr.as_ptr(), &mut value)
+                };
+                if let Some(ptr) = std::ptr::NonNull::new(value) {
+                    items.push((key_as_str, OwnedPyObject::from_non_null(ptr)));
+                } else if !is_pseudo_field(field.as_ptr(), self.state) {
+                    let value = unsafe { pyobject_getattr(self.ptr, attr.as_ptr()).unwrap() };
                     items.push((key_as_str, value));
                 }
             } else {
-                let value = unsafe { pyo3::ffi::PyDict_GetItem(dict, attr.as_ptr()) };
-                if !value.is_null() {
-                    items.push((key_as_str, value));
-                } else if !is_pseudo_field(field.as_ptr(), self.state) {
-                    let value = unsafe { pyo3::ffi::PyObject_GetAttr(self.ptr, attr.as_ptr()) };
-                    unsafe { pyo3::ffi::Py_DECREF(value) };
+                if !is_pseudo_field(field.as_ptr(), self.state) {
+                    let value = unsafe { pyobject_getattr(self.ptr, attr.as_ptr()).unwrap() };
                     items.push((key_as_str, value));
                 }
             }
@@ -109,7 +105,7 @@ impl Serialize for Dataclass<'_> {
 
         let mut map = serializer.serialize_map(Some(items.len()))?;
         for (key, value) in items.iter() {
-            let pyvalue = PyObject::new(*value, self.state, self.opts, self.default);
+            let pyvalue = PyObject::new(value.as_ptr(), self.state, self.opts, self.default);
             map.serialize_key(key).unwrap();
             map.serialize_value(&pyvalue)?
         }

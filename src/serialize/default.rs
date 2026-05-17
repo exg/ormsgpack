@@ -33,12 +33,11 @@ pub struct DefaultHook {
 
 pub struct DefaultHookCall<'a> {
     hook: &'a DefaultHook,
-    pub result: *mut pyo3::ffi::PyObject,
+    pub result: OwnedPyObject,
 }
 
 impl Drop for DefaultHookCall<'_> {
     fn drop(&mut self) {
-        unsafe { pyo3::ffi::Py_DECREF(self.result) };
         let recursion = self.hook.recursion.get();
         self.hook.recursion.set(recursion - 1);
     }
@@ -59,15 +58,14 @@ impl DefaultHook {
                 if unlikely(recursion == RECURSION_LIMIT) {
                     return Err(Error::RecursionLimitReached);
                 }
-                let default_obj = unsafe { pyobject_call_one_arg(callable.as_ptr(), ptr) };
-                if unlikely(default_obj.is_null()) {
-                    Err(Error::InvalidType(ptr))
-                } else {
+                if let Some(result) = unsafe { pyobject_call_one_arg(callable.as_ptr(), ptr) } {
                     self.recursion.set(recursion + 1);
                     Ok(DefaultHookCall {
                         hook: self,
-                        result: default_obj,
+                        result: result,
                     })
+                } else {
+                    Err(Error::InvalidType(ptr))
                 }
             }
             None => Err(Error::InvalidType(ptr)),

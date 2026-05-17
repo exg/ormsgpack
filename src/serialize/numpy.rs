@@ -220,7 +220,7 @@ impl Serialize for NumpyArrayNode {
 // >>> arr.strides
 // (16, 8, 4)
 pub struct NumpyArray {
-    capsule: *mut PyObject,
+    _capsule: OwnedPyObject,
     root: NumpyArrayNode,
 }
 
@@ -228,26 +228,21 @@ impl NumpyArray {
     #[inline(never)]
     pub fn new(ptr: *mut PyObject, state: *mut State, opts: Opt) -> Result<Self, PyArrayError> {
         unsafe {
-            let capsule = pyo3::ffi::PyObject_GetAttr(ptr, (*state).array_struct_str);
-            let array = PyCapsule_GetPointer(capsule, std::ptr::null()).cast::<PyArrayInterface>();
+            let capsule = pyobject_getattr(ptr, (*state).array_struct_str).unwrap();
+            let array =
+                PyCapsule_GetPointer(capsule.as_ptr(), std::ptr::null()).cast::<PyArrayInterface>();
             if (*array).two != 2 {
-                pyo3::ffi::Py_DECREF(capsule);
                 return Err(PyArrayError::Malformed);
             }
             if (*array).flags & 0x1 != 0x1 {
-                pyo3::ffi::Py_DECREF(capsule);
                 return Err(PyArrayError::NotContiguous);
             }
             let num_dimensions = (*array).nd as usize;
             if num_dimensions == 0 {
-                pyo3::ffi::Py_DECREF(capsule);
                 return Err(PyArrayError::UnsupportedDataType);
             }
             match ItemType::find(array, ptr, state) {
-                None => {
-                    pyo3::ffi::Py_DECREF(capsule);
-                    Err(PyArrayError::UnsupportedDataType)
-                }
+                None => Err(PyArrayError::UnsupportedDataType),
                 Some(kind) => {
                     let root = if num_dimensions > 1 {
                         let mut position = Vec::with_capacity(num_dimensions);
@@ -265,7 +260,7 @@ impl NumpyArray {
                         })
                     };
                     Ok(NumpyArray {
-                        capsule: capsule,
+                        _capsule: capsule,
                         root: root,
                     })
                 }
@@ -308,12 +303,6 @@ impl NumpyArray {
             children.push(child);
         }
         NumpyArrayNode::Internal(children)
-    }
-}
-
-impl Drop for NumpyArray {
-    fn drop(&mut self) {
-        unsafe { pyo3::ffi::Py_DECREF(self.capsule) };
     }
 }
 
@@ -400,14 +389,11 @@ impl NumpyDatetimeUnit {
     /// https://github.com/numpy/numpy/issues/5350.
     fn from_pyobject(ptr: *mut PyObject, state: *mut State) -> Self {
         let uni = unsafe {
-            let dtype = pyo3::ffi::PyObject_GetAttr(ptr, (*state).dtype_str);
-            let descr = pyo3::ffi::PyObject_GetAttr(dtype, (*state).descr_str);
-            let el0 = pyo3::ffi::PyList_GET_ITEM(descr, 0);
+            let dtype = pyobject_getattr(ptr, (*state).dtype_str).unwrap();
+            let descr = pyobject_getattr(dtype.as_ptr(), (*state).descr_str).unwrap();
+            let el0 = pyo3::ffi::PyList_GET_ITEM(descr.as_ptr(), 0);
             let descr_str = pytuple_get_item(el0, 1);
-            let uni = unicode_to_str(descr_str).unwrap();
-            pyo3::ffi::Py_DECREF(descr);
-            pyo3::ffi::Py_DECREF(dtype);
-            uni
+            unicode_to_str(descr_str).unwrap()
         };
         if uni.len() < 5 {
             return Self::NaT;

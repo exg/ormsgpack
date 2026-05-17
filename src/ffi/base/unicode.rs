@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
 use crate::ffi::unicode::*;
+use crate::ffi::OwnedPyObject;
 use pyo3::ffi::*;
 
 #[inline(always)]
@@ -9,8 +10,11 @@ pub fn hash_str(op: *mut PyObject) -> Py_hash_t {
 }
 
 #[inline(always)]
-pub fn unicode_from_str(buf: &str) -> *mut PyObject {
-    unsafe { PyUnicode_FromStringAndSize(buf.as_ptr().cast::<i8>(), buf.len() as isize) }
+pub fn unicode_from_str(buf: &str) -> OwnedPyObject {
+    unsafe {
+        let ptr = PyUnicode_FromStringAndSize(buf.as_ptr().cast::<i8>(), buf.len() as isize);
+        OwnedPyObject::from_ptr(ptr)
+    }
 }
 
 #[inline(always)]

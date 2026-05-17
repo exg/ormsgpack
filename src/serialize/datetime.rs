@@ -4,7 +4,6 @@ use crate::ffi::*;
 use crate::opt::*;
 use crate::serialize::datetimelike::{DateLike, DateTimeLike, TimeLike};
 use crate::state::State;
-use crate::util::unlikely;
 use serde::ser::{Serialize, Serializer};
 use serde_bytes::Bytes;
 
@@ -129,22 +128,23 @@ unsafe fn utcoffset(
     if tzinfo == unsafe { pyo3::ffi::Py_None() } {
         return Ok(None);
     }
-    let py_offset: *mut pyo3::ffi::PyObject;
-    if pyo3::ffi::PyObject_HasAttr(tzinfo, (*state).normalize_str) == 1 {
+    let maybe_delta = if pyo3::ffi::PyObject_HasAttr(tzinfo, (*state).normalize_str) == 1 {
         // pytz
-        let normalized = pyobject_call_method_one_arg(tzinfo, (*state).normalize_str, ptr);
-        py_offset = pyobject_call_method_no_args(normalized, (*state).utcoffset_str);
-        pyo3::ffi::Py_DECREF(normalized);
+        let maybe_normalized = pyobject_call_method_one_arg(tzinfo, (*state).normalize_str, ptr);
+        if let Some(normalized) = maybe_normalized {
+            pyobject_call_method_no_args(normalized.as_ptr(), (*state).utcoffset_str)
+        } else {
+            None
+        }
     } else {
-        py_offset = pyobject_call_method_one_arg(tzinfo, (*state).utcoffset_str, ptr);
-    }
-    if unlikely(py_offset.is_null()) {
+        pyobject_call_method_one_arg(tzinfo, (*state).utcoffset_str, ptr)
+    };
+    let Some(delta) = maybe_delta else {
         pyo3::ffi::PyErr_Clear();
         return Err(DateTimeError::LibraryUnsupported);
-    }
-    let day = pyo3::ffi::PyDateTime_DELTA_GET_DAYS(py_offset);
-    let second = pyo3::ffi::PyDateTime_DELTA_GET_SECONDS(py_offset);
-    pyo3::ffi::Py_DECREF(py_offset);
+    };
+    let day = pyo3::ffi::PyDateTime_DELTA_GET_DAYS(delta.as_ptr());
+    let second = pyo3::ffi::PyDateTime_DELTA_GET_SECONDS(delta.as_ptr());
     let offset = if day == -1 {
         // datetime.timedelta(days=-1, seconds=68400) -> -05:00
         -86400 + second
