@@ -11,22 +11,22 @@ use serde::ser::{Serialize, SerializeMap, Serializer};
 use smallvec::SmallVec;
 
 pub struct Dict<'a> {
-    ptr: *mut pyo3::ffi::PyObject,
+    obj: BorrowedPyObject<'a>,
     state: &'a State,
     opts: Opt,
-    default: &'a DefaultHook,
+    default: &'a DefaultHook<'a>,
 }
 
 impl<'a> Dict<'a> {
     #[inline]
     pub fn try_new_exact(
-        obj: PyObjectWithType,
+        obj: PyObjectWithType<'a>,
         state: &'a State,
         opts: Opt,
-        default: &'a DefaultHook,
+        default: &'a DefaultHook<'a>,
     ) -> Option<Self> {
         if obj.get_type_ptr() == &raw mut pyo3::ffi::PyDict_Type {
-            Some(Self::new(obj.as_ptr(), state, opts, default))
+            Some(Self::new(obj.as_borrowed(), state, opts, default))
         } else {
             None
         }
@@ -34,32 +34,32 @@ impl<'a> Dict<'a> {
 
     #[inline]
     pub fn try_new(
-        obj: PyObjectWithType,
+        obj: PyObjectWithType<'a>,
         state: &'a State,
         opts: Opt,
-        default: &'a DefaultHook,
+        default: &'a DefaultHook<'a>,
     ) -> Option<Self> {
         if unsafe {
             pyo3::ffi::PyType_HasFeature(obj.get_type_ptr(), pyo3::ffi::Py_TPFLAGS_DICT_SUBCLASS)
                 != 0
         } {
-            Some(Self::new(obj.as_ptr(), state, opts, default))
+            Some(Self::new(obj.as_borrowed(), state, opts, default))
         } else {
             None
         }
     }
 
     fn new(
-        ptr: *mut pyo3::ffi::PyObject,
+        obj: BorrowedPyObject<'a>,
         state: &'a State,
         opts: Opt,
-        default: &'a DefaultHook,
+        default: &'a DefaultHook<'a>,
     ) -> Self {
         Dict {
-            state: state,
-            ptr: ptr,
-            opts: opts,
-            default: default,
+            state,
+            obj,
+            opts,
+            default,
         }
     }
 }
@@ -71,8 +71,8 @@ impl Serialize for Dict<'_> {
         S: Serializer,
     {
         let mut critical_section = CriticalSection::new();
-        critical_section.begin(self.ptr);
-        if unlikely(unsafe { pydict_size(self.ptr) } == 0) {
+        critical_section.begin(self.obj.as_ptr());
+        if unlikely(unsafe { pydict_size(self.obj.as_ptr()) } == 0) {
             serializer.serialize_map(Some(0))?.end()
         } else if self.opts & (NON_STR_KEYS | SORT_KEYS) == 0 {
             self.serialize_with_str_keys(serializer)
@@ -95,15 +95,15 @@ impl Dict<'_> {
     where
         S: Serializer,
     {
-        let len = unsafe { pydict_size(self.ptr) } as usize;
+        let len = unsafe { pydict_size(self.obj.as_ptr()) } as usize;
         let mut map = serializer.serialize_map(Some(len))?;
-        for (key, value) in PyDictIter::from_pyobject(self.ptr) {
+        for (key, value) in PyDictIter::from_pyobject(self.obj) {
             let ob_type = unsafe { pyo3::ffi::Py_TYPE(key.as_ptr()) };
             if unlikely(ob_type != &raw mut pyo3::ffi::PyUnicode_Type) {
                 return Err(serde::ser::Error::custom(KEY_MUST_BE_STR));
             }
             let key_as_str = unicode_to_str(key.as_ptr()).map_err(serde::ser::Error::custom)?;
-            let pyvalue = PyObject::new(value.as_ptr(), self.state, self.opts, self.default);
+            let pyvalue = PyObject::new(value, self.state, self.opts, self.default);
             map.serialize_key(key_as_str).unwrap();
             map.serialize_value(&pyvalue)?;
         }
@@ -115,16 +115,15 @@ impl Dict<'_> {
     where
         S: Serializer,
     {
-        let len = unsafe { pydict_size(self.ptr) } as usize;
-        let mut items: SmallVec<[(&str, *mut pyo3::ffi::PyObject); 8]> =
-            SmallVec::with_capacity(len);
-        for (key, value) in PyDictIter::from_pyobject(self.ptr) {
+        let len = unsafe { pydict_size(self.obj.as_ptr()) } as usize;
+        let mut items: SmallVec<[(&str, BorrowedPyObject<'_>); 8]> = SmallVec::with_capacity(len);
+        for (key, value) in PyDictIter::from_pyobject(self.obj) {
             let ob_type = unsafe { pyo3::ffi::Py_TYPE(key.as_ptr()) };
             if unlikely(ob_type != &raw mut pyo3::ffi::PyUnicode_Type) {
                 return Err(serde::ser::Error::custom(KEY_MUST_BE_STR));
             }
             let key_as_str = unicode_to_str(key.as_ptr()).map_err(serde::ser::Error::custom)?;
-            items.push((key_as_str, value.as_ptr()));
+            items.push((key_as_str, value));
         }
 
         items.sort_unstable_by(|a, b| a.0.cmp(b.0));
@@ -143,20 +142,20 @@ impl Dict<'_> {
     where
         S: Serializer,
     {
-        let len = unsafe { pydict_size(self.ptr) } as usize;
+        let len = unsafe { pydict_size(self.obj.as_ptr()) } as usize;
         let mut map = serializer.serialize_map(Some(len))?;
-        for (key, value) in PyDictIter::from_pyobject(self.ptr) {
+        for (key, value) in PyDictIter::from_pyobject(self.obj) {
             let ob_type = unsafe { pyo3::ffi::Py_TYPE(key.as_ptr()) };
             if ob_type == &raw mut pyo3::ffi::PyUnicode_Type {
                 let key_as_str = unicode_to_str(key.as_ptr()).map_err(serde::ser::Error::custom)?;
                 map.serialize_entry(
                     key_as_str,
-                    &PyObject::new(value.as_ptr(), self.state, self.opts, self.default),
+                    &PyObject::new(value, self.state, self.opts, self.default),
                 )?;
             } else {
                 map.serialize_entry(
-                    &DictKey::new(key.as_ptr(), self.state, self.opts),
-                    &PyObject::new(value.as_ptr(), self.state, self.opts, self.default),
+                    &DictKey::new(key, self.state, self.opts),
+                    &PyObject::new(value, self.state, self.opts, self.default),
                 )?;
             }
         }

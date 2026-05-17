@@ -6,20 +6,19 @@ use crate::util::unlikely;
 
 use std::cell::Cell;
 use std::ffi::CStr;
-use std::ptr::NonNull;
 
-pub enum Error {
-    InvalidType(*mut pyo3::ffi::PyObject),
+pub enum Error<'a> {
+    InvalidType(BorrowedPyObject<'a>),
     RecursionLimitReached,
 }
 
-impl std::fmt::Display for Error {
+impl std::fmt::Display for Error<'_> {
     #[cold]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
-            Error::InvalidType(ptr) => {
+            Error::InvalidType(obj) => {
                 let name = unsafe {
-                    let ob_type = pyo3::ffi::Py_TYPE(ptr);
+                    let ob_type = pyo3::ffi::Py_TYPE(obj.as_ptr());
                     CStr::from_ptr((*ob_type).tp_name).to_string_lossy()
                 };
                 write!(f, "Type is not msgpack serializable: {name}")
@@ -29,23 +28,20 @@ impl std::fmt::Display for Error {
     }
 }
 
-pub struct DefaultHook {
-    pub inner: Option<NonNull<pyo3::ffi::PyObject>>,
+pub struct DefaultHook<'a> {
+    pub inner: Option<BorrowedPyObject<'a>>,
     recursion: Cell<u8>,
 }
 
-impl DefaultHook {
-    pub fn new(default: Option<NonNull<pyo3::ffi::PyObject>>) -> Self {
+impl<'a> DefaultHook<'a> {
+    pub fn new(default: Option<BorrowedPyObject<'a>>) -> Self {
         DefaultHook {
             inner: default,
             recursion: Cell::new(0),
         }
     }
 
-    pub fn enter_call(
-        &self,
-        ptr: *mut pyo3::ffi::PyObject,
-    ) -> Result<*mut pyo3::ffi::PyObject, Error> {
+    pub fn enter_call(&self, obj: BorrowedPyObject<'a>) -> Result<OwnedPyObject, Error<'a>> {
         match self.inner {
             Some(callable) => {
                 let recursion = self.recursion.get();
@@ -53,14 +49,9 @@ impl DefaultHook {
                     return Err(Error::RecursionLimitReached);
                 }
                 self.recursion.set(recursion + 1);
-                let default_obj = unsafe { pyobject_call_one_arg(callable.as_ptr(), ptr) };
-                if unlikely(default_obj.is_null()) {
-                    Err(Error::InvalidType(ptr))
-                } else {
-                    Ok(default_obj)
-                }
+                callable.call_one_arg(obj).ok_or(Error::InvalidType(obj))
             }
-            None => Err(Error::InvalidType(ptr)),
+            None => Err(Error::InvalidType(obj)),
         }
     }
 

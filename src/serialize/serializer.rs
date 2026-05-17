@@ -27,14 +27,14 @@ use serde::ser::{Serialize, Serializer};
 use std::ptr::NonNull;
 
 pub fn serialize(
-    ptr: *mut pyo3::ffi::PyObject,
+    obj: BorrowedPyObject<'_>,
     state: &State,
-    default: Option<NonNull<pyo3::ffi::PyObject>>,
+    default: Option<BorrowedPyObject<'_>>,
     opts: Opt,
 ) -> Result<NonNull<pyo3::ffi::PyObject>, String> {
     let mut buf = BytesWriter::default();
     let default_hook = DefaultHook::new(default);
-    let obj = PyObject::new(ptr, state, opts, &default_hook);
+    let obj = PyObject::new(obj, state, opts, &default_hook);
     let mut ser = msgpack::Serializer::new(&mut buf);
     let res = obj.serialize(&mut ser);
     match res {
@@ -47,21 +47,21 @@ pub fn serialize(
 }
 
 pub struct PyObject<'a> {
-    ptr: *mut pyo3::ffi::PyObject,
+    obj: BorrowedPyObject<'a>,
     state: &'a State,
     opts: Opt,
-    default: &'a DefaultHook,
+    default: &'a DefaultHook<'a>,
 }
 
 impl<'a> PyObject<'a> {
     pub fn new(
-        ptr: *mut pyo3::ffi::PyObject,
+        obj: BorrowedPyObject<'a>,
         state: &'a State,
         opts: Opt,
-        default: &'a DefaultHook,
+        default: &'a DefaultHook<'a>,
     ) -> Self {
         PyObject {
-            ptr: ptr,
+            obj,
             state: state,
             opts: opts,
             default: default,
@@ -74,11 +74,11 @@ impl<'a> PyObject<'a> {
     {
         let obj = self
             .default
-            .enter_call(self.ptr)
+            .enter_call(self.obj)
             .map_err(serde::ser::Error::custom)?;
-        let res = PyObject::new(obj, self.state, self.opts, self.default).serialize(serializer);
+        let res = PyObject::new(obj.as_borrowed(), self.state, self.opts, self.default)
+            .serialize(serializer);
         self.default.leave_call();
-        unsafe { pyo3::ffi::Py_DECREF(obj) };
         res
     }
 
@@ -87,7 +87,7 @@ impl<'a> PyObject<'a> {
     where
         S: Serializer,
     {
-        let obj = PyObjectWithType::new(self.ptr);
+        let obj = PyObjectWithType::new(self.obj);
 
         if self.opts & PASSTHROUGH_DATETIME == 0 {
             match DateTime::try_new(obj, &self.state.datetime, self.opts) {
@@ -250,7 +250,7 @@ impl Serialize for PyObject<'_> {
     where
         S: Serializer,
     {
-        let obj = PyObjectWithType::new(self.ptr);
+        let obj = PyObjectWithType::new(self.obj);
         if let Some(value) = Str::try_new(obj, self.opts) {
             return value.serialize(serializer);
         }
@@ -271,7 +271,7 @@ impl Serialize for PyObject<'_> {
         if let Some(value) = Bool::try_new(obj) {
             return value.serialize(serializer);
         }
-        if self.ptr == unsafe { pyo3::ffi::Py_None() } {
+        if self.obj.as_ptr() == unsafe { pyo3::ffi::Py_None() } {
             return serializer.serialize_unit();
         }
         if let Some(value) = Float::try_new(obj) {
@@ -288,15 +288,15 @@ impl Serialize for PyObject<'_> {
 }
 
 pub struct DictKey<'a> {
-    ptr: *mut pyo3::ffi::PyObject,
+    obj: BorrowedPyObject<'a>,
     state: &'a State,
     opts: Opt,
 }
 
 impl<'a> DictKey<'a> {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject, state: &'a State, opts: Opt) -> Self {
+    pub fn new(obj: BorrowedPyObject<'a>, state: &'a State, opts: Opt) -> Self {
         DictKey {
-            ptr: ptr,
+            obj,
             state: state,
             opts: opts,
         }
@@ -307,7 +307,7 @@ impl<'a> DictKey<'a> {
     where
         S: Serializer,
     {
-        let obj = PyObjectWithType::new(self.ptr);
+        let obj = PyObjectWithType::new(self.obj);
 
         match DateTime::try_new(obj, &self.state.datetime, self.opts) {
             Ok(Some(value)) => return value.serialize(serializer),
@@ -359,7 +359,7 @@ impl Serialize for DictKey<'_> {
     where
         S: Serializer,
     {
-        let obj = PyObjectWithType::new(self.ptr);
+        let obj = PyObjectWithType::new(self.obj);
         if let Some(value) = Str::try_new(obj, self.opts) {
             return value.serialize(serializer);
         }
@@ -374,7 +374,7 @@ impl Serialize for DictKey<'_> {
         if let Some(value) = Bool::try_new(obj) {
             return value.serialize(serializer);
         }
-        if self.ptr == unsafe { pyo3::ffi::Py_None() } {
+        if self.obj.as_ptr() == unsafe { pyo3::ffi::Py_None() } {
             return serializer.serialize_unit();
         }
         if let Some(value) = Float::try_new(obj) {

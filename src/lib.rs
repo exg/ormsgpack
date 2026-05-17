@@ -30,7 +30,6 @@ use std::os::raw::c_char;
 use std::os::raw::c_int;
 use std::os::raw::c_long;
 use std::os::raw::c_void;
-use std::ptr::NonNull;
 
 const PACKB_DOC: &CStr =
     c"packb(obj, /, default=None, option=None)\n--\n\nSerialize Python objects to msgpack.";
@@ -218,7 +217,7 @@ fn raise_packb_exception(state: &state::State, msg: &str) -> *mut PyObject {
 }
 
 unsafe fn parse_option_arg(
-    opts: Option<NonNull<PyObject>>,
+    opts: Option<BorrowedPyObject<'_>>,
     mask: opt::Opt,
 ) -> Result<opt::Opt, ()> {
     let Some(opts) = opts else {
@@ -248,8 +247,8 @@ pub unsafe extern "C" fn unpackb(
     kwnames: *mut PyObject,
 ) -> *mut PyObject {
     let state = (&*PyModule_GetState(module).cast::<ModuleState>()).get();
-    let mut ext_hook: Option<NonNull<PyObject>> = None;
-    let mut optsptr: Option<NonNull<PyObject>> = None;
+    let mut ext_hook = None;
+    let mut optsptr = None;
 
     let num_args = PyVectorcall_NARGS(nargs as usize);
     if num_args != 1 {
@@ -265,9 +264,9 @@ pub unsafe extern "C" fn unpackb(
         for i in 0..tuple_size {
             let arg = pytuple_get_item(kwnames, i as Py_ssize_t);
             if PyUnicode_Compare(arg, state.ext_hook_str.as_ptr()) == 0 {
-                ext_hook = Some(NonNull::new_unchecked(*args.offset(num_args + i)));
+                ext_hook = BorrowedPyObject::from_ptr(*args.offset(num_args + i));
             } else if PyUnicode_Compare(arg, state.option_str.as_ptr()) == 0 {
-                optsptr = Some(NonNull::new_unchecked(*args.offset(num_args + i)));
+                optsptr = BorrowedPyObject::from_ptr(*args.offset(num_args + i));
             } else {
                 return raise_unpackb_exception(
                     state,
@@ -282,8 +281,9 @@ pub unsafe extern "C" fn unpackb(
         Err(()) => return raise_unpackb_exception(state, "Invalid opts"),
     };
 
-    match crate::deserialize::deserialize(*args, &state.deserialize, ext_hook, opts) {
-        Ok(val) => val.as_ptr(),
+    let obj = BorrowedPyObject::from_ptr(*args).unwrap_unchecked();
+    match crate::deserialize::deserialize(obj, &state.deserialize, ext_hook, opts) {
+        Ok(val) => val.into_ptr(),
         Err(err) => raise_unpackb_exception(state, &err.message),
     }
 }
@@ -296,8 +296,8 @@ pub unsafe extern "C" fn packb(
     kwnames: *mut PyObject,
 ) -> *mut PyObject {
     let state = (&*PyModule_GetState(module).cast::<ModuleState>()).get();
-    let mut default: Option<NonNull<PyObject>> = None;
-    let mut optsptr: Option<NonNull<PyObject>> = None;
+    let mut default = None;
+    let mut optsptr = None;
 
     let num_args = PyVectorcall_NARGS(nargs as usize);
     if num_args == 0 {
@@ -307,10 +307,10 @@ pub unsafe extern "C" fn packb(
         );
     }
     if num_args >= 2 {
-        default = Some(NonNull::new_unchecked(*args.offset(1)));
+        default = BorrowedPyObject::from_ptr(*args.offset(1));
     }
     if num_args >= 3 {
-        optsptr = Some(NonNull::new_unchecked(*args.offset(2)));
+        optsptr = BorrowedPyObject::from_ptr(*args.offset(2));
     }
     if !kwnames.is_null() {
         let tuple_size = Py_SIZE(kwnames);
@@ -323,7 +323,7 @@ pub unsafe extern "C" fn packb(
                         "packb() got multiple values for argument: 'default'",
                     );
                 }
-                default = Some(NonNull::new_unchecked(*args.offset(num_args + i)));
+                default = BorrowedPyObject::from_ptr(*args.offset(num_args + i));
             } else if PyUnicode_Compare(arg, state.option_str.as_ptr()) == 0 {
                 if optsptr.is_some() {
                     return raise_packb_exception(
@@ -331,7 +331,7 @@ pub unsafe extern "C" fn packb(
                         "packb() got multiple values for argument: 'option'",
                     );
                 }
-                optsptr = Some(NonNull::new_unchecked(*args.offset(num_args + i)));
+                optsptr = BorrowedPyObject::from_ptr(*args.offset(num_args + i));
             } else {
                 return raise_packb_exception(state, "packb() got an unexpected keyword argument");
             }
@@ -343,7 +343,8 @@ pub unsafe extern "C" fn packb(
         Err(()) => return raise_packb_exception(state, "Invalid opts"),
     };
 
-    match crate::serialize::serialize(*args, &state.serialize, default, opts) {
+    let obj = BorrowedPyObject::from_ptr(*args).unwrap_unchecked();
+    match crate::serialize::serialize(obj, &state.serialize, default, opts) {
         Ok(val) => val.as_ptr(),
         Err(err) => raise_packb_exception(state, &err),
     }

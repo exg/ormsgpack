@@ -251,24 +251,29 @@ impl Drop for OwnedPyObject {
 }
 
 #[derive(Clone, Copy)]
-pub struct PyObjectWithType {
-    ptr: *mut PyObject,
+pub struct PyObjectWithType<'a> {
+    obj: BorrowedPyObject<'a>,
     type_ptr: *mut PyTypeObject,
 }
 
-impl PyObjectWithType {
+impl<'a> PyObjectWithType<'a> {
     #[inline(always)]
-    pub fn new(ptr: *mut PyObject) -> Self {
-        let ob_type = unsafe { Py_TYPE(ptr) };
+    pub fn new(obj: BorrowedPyObject<'a>) -> Self {
+        let ob_type = unsafe { Py_TYPE(obj.as_ptr()) };
         Self {
-            ptr,
+            obj,
             type_ptr: ob_type,
         }
     }
 
     #[inline(always)]
+    pub fn as_borrowed(self) -> BorrowedPyObject<'a> {
+        self.obj
+    }
+
+    #[inline(always)]
     pub fn as_ptr(self) -> *mut PyObject {
-        self.ptr
+        self.obj.as_ptr()
     }
 
     #[inline(always)]
@@ -291,28 +296,31 @@ pub unsafe fn pybytearray_as_bytes(op: *mut PyObject) -> &'static [u8] {
     std::slice::from_raw_parts(buffer, length)
 }
 
-pub struct PyDictIter {
-    op: *mut PyObject,
+pub struct PyDictIter<'a> {
+    op: BorrowedPyObject<'a>,
     pos: isize,
 }
 
-impl PyDictIter {
+impl<'a> PyDictIter<'a> {
     #[inline]
-    pub fn from_pyobject(op: *mut PyObject) -> Self {
+    pub fn from_pyobject(op: BorrowedPyObject<'a>) -> Self {
         PyDictIter { op: op, pos: 0 }
     }
 }
 
-impl Iterator for PyDictIter {
-    type Item = (NonNull<PyObject>, NonNull<PyObject>);
+impl<'a> Iterator for PyDictIter<'a> {
+    type Item = (BorrowedPyObject<'a>, BorrowedPyObject<'a>);
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let mut key: *mut PyObject = std::ptr::null_mut();
         let mut value: *mut PyObject = std::ptr::null_mut();
         unsafe {
-            if PyDict_Next(self.op, &mut self.pos, &mut key, &mut value) == 1 {
-                Some((NonNull::new_unchecked(key), NonNull::new_unchecked(value)))
+            if PyDict_Next(self.op.as_ptr(), &mut self.pos, &mut key, &mut value) == 1 {
+                Some((
+                    BorrowedPyObject(NonNull::new_unchecked(key), PhantomData),
+                    BorrowedPyObject(NonNull::new_unchecked(value), PhantomData),
+                ))
             } else {
                 None
             }
@@ -320,7 +328,7 @@ impl Iterator for PyDictIter {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = unsafe { pydict_size(self.op) } as usize;
+        let len = unsafe { pydict_size(self.op.as_ptr()) } as usize;
         (len, Some(len))
     }
 }
@@ -348,5 +356,15 @@ impl Buffer {
 impl Drop for Buffer {
     fn drop(&mut self) {
         unsafe { PyBuffer_Release(&mut self.view) }
+    }
+}
+
+#[inline]
+pub fn pybytes_new(bytes: &[u8]) -> OwnedPyObject {
+    let ptr = bytes.as_ptr().cast();
+    let len = bytes.len() as pyo3::ffi::Py_ssize_t;
+    unsafe {
+        let ptr = pyo3::ffi::PyBytes_FromStringAndSize(ptr, len);
+        OwnedPyObject::from_owned_ptr(ptr)
     }
 }

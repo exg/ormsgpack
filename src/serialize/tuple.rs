@@ -9,35 +9,35 @@ use crate::serialize::State;
 use serde::ser::{Serialize, SerializeSeq, Serializer};
 
 pub struct Tuple<'a> {
-    ptr: *mut pyo3::ffi::PyObject,
+    obj: BorrowedPyObject<'a>,
     state: &'a State,
     opts: Opt,
-    default: &'a DefaultHook,
+    default: &'a DefaultHook<'a>,
 }
 
 impl<'a> Tuple<'a> {
     #[inline]
     pub fn try_new(
-        obj: PyObjectWithType,
+        obj: PyObjectWithType<'a>,
         state: &'a State,
         opts: Opt,
-        default: &'a DefaultHook,
+        default: &'a DefaultHook<'a>,
     ) -> Option<Self> {
         if obj.get_type_ptr() == &raw mut pyo3::ffi::PyTuple_Type {
-            Some(Self::new(obj.as_ptr(), state, opts, default))
+            Some(Self::new(obj.as_borrowed(), state, opts, default))
         } else {
             None
         }
     }
 
     fn new(
-        ptr: *mut pyo3::ffi::PyObject,
+        obj: BorrowedPyObject<'a>,
         state: &'a State,
         opts: Opt,
-        default: &'a DefaultHook,
+        default: &'a DefaultHook<'a>,
     ) -> Self {
         Tuple {
-            ptr: ptr,
+            obj,
             state: state,
             opts: opts,
             default: default,
@@ -51,10 +51,13 @@ impl Serialize for Tuple<'_> {
     where
         S: Serializer,
     {
-        let len = unsafe { pyo3::ffi::Py_SIZE(self.ptr) } as usize;
+        let len = unsafe { pyo3::ffi::Py_SIZE(self.obj.as_ptr()) } as usize;
         let mut seq = serializer.serialize_seq(Some(len))?;
         for i in 0..len {
-            let item = unsafe { pytuple_get_item(self.ptr, i as isize) };
+            let item = unsafe {
+                BorrowedPyObject::from_ptr(pytuple_get_item(self.obj.as_ptr(), i as isize))
+                    .unwrap_unchecked()
+            };
             let value = PyObject::new(item, self.state, self.opts, self.default);
             seq.serialize_element(&value)?;
         }
@@ -63,17 +66,17 @@ impl Serialize for Tuple<'_> {
 }
 
 pub struct TupleDictKey<'a> {
-    ptr: *mut pyo3::ffi::PyObject,
+    obj: BorrowedPyObject<'a>,
     state: &'a State,
     opts: Opt,
 }
 
 impl<'a> TupleDictKey<'a> {
     #[inline]
-    pub fn try_new(obj: PyObjectWithType, state: &'a State, opts: Opt) -> Option<Self> {
+    pub fn try_new(obj: PyObjectWithType<'a>, state: &'a State, opts: Opt) -> Option<Self> {
         if obj.get_type_ptr() == &raw mut pyo3::ffi::PyTuple_Type {
             Some(Self {
-                ptr: obj.as_ptr(),
+                obj: obj.as_borrowed(),
                 state,
                 opts,
             })
@@ -89,10 +92,13 @@ impl Serialize for TupleDictKey<'_> {
     where
         S: Serializer,
     {
-        let len = unsafe { pyo3::ffi::Py_SIZE(self.ptr) } as usize;
+        let len = unsafe { pyo3::ffi::Py_SIZE(self.obj.as_ptr()) } as usize;
         let mut seq = serializer.serialize_seq(Some(len))?;
         for i in 0..len {
-            let item = unsafe { pytuple_get_item(self.ptr, i as isize) };
+            let item = unsafe {
+                BorrowedPyObject::from_ptr(pytuple_get_item(self.obj.as_ptr(), i as isize))
+                    .unwrap_unchecked()
+            };
             let value = DictKey::new(item, self.state, self.opts);
             seq.serialize_element(&value)?;
         }

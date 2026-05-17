@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
 use crate::ext::PyExt;
-use crate::ffi::{pybytes_as_bytes, OwnedPyObject, PyObjectWithType};
+use crate::ffi::{pybytes_as_bytes, BorrowedPyObject, OwnedPyObject, PyObjectWithType};
 use crate::util::unlikely;
 use serde::ser::{Serialize, Serializer};
 use serde_bytes::Bytes;
@@ -22,27 +22,29 @@ impl State {
 }
 
 #[repr(transparent)]
-pub struct Ext {
-    ptr: *mut pyo3::ffi::PyObject,
+pub struct Ext<'a> {
+    obj: BorrowedPyObject<'a>,
 }
 
-impl Ext {
+impl<'a> Ext<'a> {
     #[inline]
-    pub fn try_new(obj: PyObjectWithType, state: &State) -> Option<Self> {
+    pub fn try_new(obj: PyObjectWithType<'a>, state: &State) -> Option<Self> {
         if obj.get_type_ptr() == state.type_object.as_ptr().cast() {
-            Some(Self { ptr: obj.as_ptr() })
+            Some(Self {
+                obj: obj.as_borrowed(),
+            })
         } else {
             None
         }
     }
 }
 
-impl Serialize for Ext {
+impl Serialize for Ext<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let ext = self.ptr.cast::<PyExt>();
+        let ext = self.obj.as_ptr().cast::<PyExt>();
         let tag = unsafe { pyo3::ffi::PyLong_AsLongLong((*ext).tag) };
         if unlikely(!(0..=127).contains(&tag)) {
             return Err(serde::ser::Error::custom("Extension type out of range"));

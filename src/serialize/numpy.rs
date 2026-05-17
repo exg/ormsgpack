@@ -114,11 +114,15 @@ enum ItemType {
 }
 
 impl ItemType {
-    fn find(array: *mut PyArrayInterface, ptr: *mut PyObject, state: &State) -> Option<ItemType> {
+    fn find(
+        array: *mut PyArrayInterface,
+        obj: BorrowedPyObject<'_>,
+        state: &State,
+    ) -> Option<ItemType> {
         match unsafe { ((*array).typekind, (*array).itemsize) } {
             (098, 1) => Some(ItemType::BOOL),
             (077, 8) => {
-                let unit = NumpyDatetimeUnit::from_pyobject(ptr, state);
+                let unit = NumpyDatetimeUnit::from_pyobject(obj, state);
                 Some(ItemType::DATETIME64(unit))
             }
             (102, 2) => Some(ItemType::F16),
@@ -289,48 +293,43 @@ impl Serialize for NumpyArrayNode {
 // >>> arr.strides
 // (16, 8, 4)
 pub struct NumpyArray {
-    capsule: *mut PyObject,
+    _capsule: OwnedPyObject,
     root: NumpyArrayNode,
 }
 
 impl NumpyArray {
     #[inline]
     pub fn try_new(
-        obj: PyObjectWithType,
+        obj: PyObjectWithType<'_>,
         types: &NumpyTypes,
         state: &State,
         opts: Opt,
     ) -> Result<Option<Self>, PyArrayError> {
         if obj.get_type_ptr() == types.array.as_ptr().cast() {
-            Self::new(obj.as_ptr(), state, opts).map(Some)
+            Self::new(obj.as_borrowed(), state, opts).map(Some)
         } else {
             Ok(None)
         }
     }
 
     #[inline(never)]
-    fn new(ptr: *mut PyObject, state: &State, opts: Opt) -> Result<Self, PyArrayError> {
+    fn new(obj: BorrowedPyObject<'_>, state: &State, opts: Opt) -> Result<Self, PyArrayError> {
         unsafe {
-            let capsule = pyo3::ffi::PyObject_GetAttr(ptr, state.array_struct_str.as_ptr());
-            let array = PyCapsule_GetPointer(capsule, std::ptr::null()).cast::<PyArrayInterface>();
+            let capsule = obj.getattr(state.array_struct_str.as_borrowed()).unwrap();
+            let array =
+                PyCapsule_GetPointer(capsule.as_ptr(), std::ptr::null()).cast::<PyArrayInterface>();
             if (*array).two != 2 {
-                pyo3::ffi::Py_DECREF(capsule);
                 return Err(PyArrayError::Malformed);
             }
             if (*array).flags & 0x1 != 0x1 {
-                pyo3::ffi::Py_DECREF(capsule);
                 return Err(PyArrayError::NotContiguous);
             }
             let num_dimensions = (*array).nd as usize;
             if num_dimensions == 0 {
-                pyo3::ffi::Py_DECREF(capsule);
                 return Err(PyArrayError::UnsupportedDataType);
             }
-            match ItemType::find(array, ptr, state) {
-                None => {
-                    pyo3::ffi::Py_DECREF(capsule);
-                    Err(PyArrayError::UnsupportedDataType)
-                }
+            match ItemType::find(array, obj, state) {
+                None => Err(PyArrayError::UnsupportedDataType),
                 Some(kind) => {
                     let root = if num_dimensions > 1 {
                         let mut position = Vec::with_capacity(num_dimensions);
@@ -348,7 +347,7 @@ impl NumpyArray {
                         })
                     };
                     Ok(NumpyArray {
-                        capsule: capsule,
+                        _capsule: capsule,
                         root: root,
                     })
                 }
@@ -391,12 +390,6 @@ impl NumpyArray {
             children.push(child);
         }
         NumpyArrayNode::Internal(children)
-    }
-}
-
-impl Drop for NumpyArray {
-    fn drop(&mut self) {
-        unsafe { pyo3::ffi::Py_DECREF(self.capsule) };
     }
 }
 
@@ -485,38 +478,35 @@ impl NumpyDatetimeUnit {
     /// object rather than using the `descr` field of the `__array_struct__`
     /// because that field isn't populated for datetime64 arrays; see
     /// https://github.com/numpy/numpy/issues/5350.
-    fn from_pyobject(ptr: *mut PyObject, state: &State) -> Self {
-        let uni = unsafe {
-            let dtype = pyo3::ffi::PyObject_GetAttr(ptr, state.dtype_str.as_ptr());
-            let descr = pyo3::ffi::PyObject_GetAttr(dtype, state.descr_str.as_ptr());
-            let el0 = pyo3::ffi::PyList_GET_ITEM(descr, 0);
+    fn from_pyobject(obj: BorrowedPyObject<'_>, state: &State) -> Self {
+        unsafe {
+            let dtype = obj.getattr(state.dtype_str.as_borrowed()).unwrap();
+            let descr = dtype.getattr(state.descr_str.as_borrowed()).unwrap();
+            let el0 = pyo3::ffi::PyList_GET_ITEM(descr.as_ptr(), 0);
             let descr_str = pytuple_get_item(el0, 1);
             let uni = unicode_to_str(descr_str).unwrap();
-            pyo3::ffi::Py_DECREF(descr);
-            pyo3::ffi::Py_DECREF(dtype);
-            uni
-        };
-        if uni.len() < 5 {
-            return Self::NaT;
-        }
-        // unit descriptions are found at
-        // https://github.com/numpy/numpy/blob/v1.26.4/numpy/core/src/multiarray/datetime.c#L81-L98
-        match &uni[4..uni.len() - 1] {
-            "Y" => Self::Years,
-            "M" => Self::Months,
-            "W" => Self::Weeks,
-            "D" => Self::Days,
-            "h" => Self::Hours,
-            "m" => Self::Minutes,
-            "s" => Self::Seconds,
-            "ms" => Self::Milliseconds,
-            "us" => Self::Microseconds,
-            "ns" => Self::Nanoseconds,
-            "ps" => Self::Picoseconds,
-            "fs" => Self::Femtoseconds,
-            "as" => Self::Attoseconds,
-            "generic" => Self::Generic,
-            _ => unreachable!(),
+            if uni.len() < 5 {
+                return Self::NaT;
+            }
+            // unit descriptions are found at
+            // https://github.com/numpy/numpy/blob/v1.26.4/numpy/core/src/multiarray/datetime.c#L81-L98
+            match &uni[4..uni.len() - 1] {
+                "Y" => Self::Years,
+                "M" => Self::Months,
+                "W" => Self::Weeks,
+                "D" => Self::Days,
+                "h" => Self::Hours,
+                "m" => Self::Minutes,
+                "s" => Self::Seconds,
+                "ms" => Self::Milliseconds,
+                "us" => Self::Microseconds,
+                "ns" => Self::Nanoseconds,
+                "ps" => Self::Picoseconds,
+                "fs" => Self::Femtoseconds,
+                "as" => Self::Attoseconds,
+                "generic" => Self::Generic,
+                _ => unreachable!(),
+            }
         }
     }
 
@@ -708,27 +698,29 @@ macro_rules! define_numpy_type {
         }
 
         #[repr(transparent)]
-        pub struct $name {
-            ptr: *mut PyObject,
+        pub struct $name<'a> {
+            obj: BorrowedPyObject<'a>,
         }
 
-        impl $name {
+        impl<'a> $name<'a> {
             #[inline]
-            pub fn try_new(obj: PyObjectWithType, types: &NumpyTypes) -> Option<Self> {
+            pub fn try_new(obj: PyObjectWithType<'a>, types: &NumpyTypes) -> Option<Self> {
                 if obj.get_type_ptr() == types.$type_name.as_ptr().cast() {
-                    Some(Self { ptr: obj.as_ptr() })
+                    Some(Self {
+                        obj: obj.as_borrowed(),
+                    })
                 } else {
                     None
                 }
             }
         }
 
-        impl Serialize for $name {
+        impl Serialize for $name<'_> {
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
             where
                 S: Serializer,
             {
-                let value = unsafe { (*self.ptr.cast::<$object_name>()).value };
+                let value = unsafe { (*self.obj.as_ptr().cast::<$object_name>()).value };
                 value.serialize(serializer)
             }
         }
@@ -754,7 +746,7 @@ struct NumpyDatetime64Object {
 }
 
 pub struct NumpyDatetime64<'a> {
-    ptr: *mut PyObject,
+    obj: BorrowedPyObject<'a>,
     state: &'a State,
     opts: Opt,
 }
@@ -762,14 +754,14 @@ pub struct NumpyDatetime64<'a> {
 impl<'a> NumpyDatetime64<'a> {
     #[inline]
     pub fn try_new(
-        obj: PyObjectWithType,
+        obj: PyObjectWithType<'a>,
         types: &NumpyTypes,
         state: &'a State,
         opts: Opt,
     ) -> Option<Self> {
         if obj.get_type_ptr() == types.datetime64.as_ptr().cast() {
             Some(Self {
-                ptr: obj.as_ptr(),
+                obj: obj.as_borrowed(),
                 state,
                 opts,
             })
@@ -784,8 +776,8 @@ impl Serialize for NumpyDatetime64<'_> {
     where
         S: Serializer,
     {
-        let unit = NumpyDatetimeUnit::from_pyobject(self.ptr, self.state);
-        let value = unsafe { (*self.ptr.cast::<NumpyDatetime64Object>()).value };
+        let unit = NumpyDatetimeUnit::from_pyobject(self.obj, self.state);
+        let value = unsafe { (*self.obj.as_ptr().cast::<NumpyDatetime64Object>()).value };
         unit.datetime(value, self.opts)
             .map_err(serde::ser::Error::custom)?
             .serialize(serializer)
@@ -799,27 +791,29 @@ struct NumpyFloat16Object {
 }
 
 #[repr(transparent)]
-pub struct NumpyFloat16 {
-    ptr: *mut PyObject,
+pub struct NumpyFloat16<'a> {
+    obj: BorrowedPyObject<'a>,
 }
 
-impl NumpyFloat16 {
+impl<'a> NumpyFloat16<'a> {
     #[inline]
-    pub fn try_new(obj: PyObjectWithType, types: &NumpyTypes) -> Option<Self> {
+    pub fn try_new(obj: PyObjectWithType<'a>, types: &NumpyTypes) -> Option<Self> {
         if obj.get_type_ptr() == types.float16.as_ptr().cast() {
-            Some(Self { ptr: obj.as_ptr() })
+            Some(Self {
+                obj: obj.as_borrowed(),
+            })
         } else {
             None
         }
     }
 }
 
-impl Serialize for NumpyFloat16 {
+impl Serialize for NumpyFloat16<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let value = unsafe { (*self.ptr.cast::<NumpyFloat16Object>()).value };
+        let value = unsafe { (*self.obj.as_ptr().cast::<NumpyFloat16Object>()).value };
         half::f16::from_bits(value).to_f32().serialize(serializer)
     }
 }

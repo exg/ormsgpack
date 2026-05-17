@@ -8,17 +8,17 @@ use crate::util::unlikely;
 use serde::ser::{Serialize, Serializer};
 
 #[repr(transparent)]
-struct StrWithSurrogates {
-    ptr: *mut pyo3::ffi::PyObject,
+struct StrWithSurrogates<'a> {
+    obj: BorrowedPyObject<'a>,
 }
 
-impl StrWithSurrogates {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject) -> Self {
-        StrWithSurrogates { ptr: ptr }
+impl<'a> StrWithSurrogates<'a> {
+    pub fn new(obj: BorrowedPyObject<'a>) -> Self {
+        StrWithSurrogates { obj }
     }
 }
 
-impl Serialize for StrWithSurrogates {
+impl Serialize for StrWithSurrogates<'_> {
     #[inline(never)]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -26,7 +26,7 @@ impl Serialize for StrWithSurrogates {
     {
         unsafe {
             let ptr = pyo3::ffi::PyUnicode_AsEncodedString(
-                self.ptr,
+                self.obj.as_ptr(),
                 c"UTF-8".as_ptr(),
                 c"replace".as_ptr(),
             );
@@ -42,17 +42,17 @@ impl Serialize for StrWithSurrogates {
     }
 }
 
-pub struct Str {
-    ptr: *mut pyo3::ffi::PyObject,
+pub struct Str<'a> {
+    obj: BorrowedPyObject<'a>,
     opts: Opt,
 }
 
-impl Str {
+impl<'a> Str<'a> {
     #[inline]
-    pub fn try_new(obj: PyObjectWithType, opts: Opt) -> Option<Self> {
+    pub fn try_new(obj: PyObjectWithType<'a>, opts: Opt) -> Option<Self> {
         if obj.get_type_ptr() == &raw mut pyo3::ffi::PyUnicode_Type {
             Some(Self {
-                ptr: obj.as_ptr(),
+                obj: obj.as_borrowed(),
                 opts,
             })
         } else {
@@ -61,16 +61,16 @@ impl Str {
     }
 }
 
-impl Serialize for Str {
+impl Serialize for Str<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        match unicode_to_str(self.ptr) {
+        match unicode_to_str(self.obj.as_ptr()) {
             Ok(val) => serializer.serialize_str(val),
             Err(err) => {
                 if self.opts & REPLACE_SURROGATES != 0 {
-                    StrWithSurrogates::new(self.ptr).serialize(serializer)
+                    StrWithSurrogates::new(self.obj).serialize(serializer)
                 } else {
                     Err(serde::ser::Error::custom(err))
                 }
@@ -79,20 +79,20 @@ impl Serialize for Str {
     }
 }
 
-pub struct StrSubclass {
-    ptr: *mut pyo3::ffi::PyObject,
+pub struct StrSubclass<'a> {
+    obj: BorrowedPyObject<'a>,
     opts: Opt,
 }
 
-impl StrSubclass {
+impl<'a> StrSubclass<'a> {
     #[inline]
-    pub fn try_new(obj: PyObjectWithType, opts: Opt) -> Option<Self> {
+    pub fn try_new(obj: PyObjectWithType<'a>, opts: Opt) -> Option<Self> {
         if unsafe {
             pyo3::ffi::PyType_HasFeature(obj.get_type_ptr(), pyo3::ffi::Py_TPFLAGS_UNICODE_SUBCLASS)
                 != 0
         } {
             Some(Self {
-                ptr: obj.as_ptr(),
+                obj: obj.as_borrowed(),
                 opts,
             })
         } else {
@@ -101,17 +101,17 @@ impl StrSubclass {
     }
 }
 
-impl Serialize for StrSubclass {
+impl Serialize for StrSubclass<'_> {
     #[inline(never)]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        match unicode_to_str_via_ffi(self.ptr) {
+        match unicode_to_str_via_ffi(self.obj.as_ptr()) {
             Ok(val) => serializer.serialize_str(val),
             Err(err) => {
                 if self.opts & REPLACE_SURROGATES != 0 {
-                    StrWithSurrogates::new(self.ptr).serialize(serializer)
+                    StrWithSurrogates::new(self.obj).serialize(serializer)
                 } else {
                     Err(serde::ser::Error::custom(err))
                 }

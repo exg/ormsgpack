@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
-use crate::ffi::{OwnedPyObject, PyObjectWithType};
+use crate::ffi::{BorrowedPyObject, OwnedPyObject, PyObjectWithType};
 use crate::opt::Opt;
 use crate::serialize::default::DefaultHook;
 use crate::serialize::serializer::{DictKey, PyObject as ObjectSerializer};
 use crate::serialize::State as SerializeState;
 
-use pyo3::ffi::*;
 use serde::ser::{Serialize, Serializer};
 
 pub struct State {
@@ -26,24 +25,24 @@ impl State {
 }
 
 pub struct Enum<'a> {
-    ptr: *mut PyObject,
+    obj: BorrowedPyObject<'a>,
     state: &'a SerializeState,
     opts: Opt,
-    default: &'a DefaultHook,
+    default: &'a DefaultHook<'a>,
 }
 
 impl<'a> Enum<'a> {
     #[inline]
     pub fn try_new(
-        obj: PyObjectWithType,
+        obj: PyObjectWithType<'a>,
         state: &'a SerializeState,
         opts: Opt,
-        default: &'a DefaultHook,
+        default: &'a DefaultHook<'a>,
     ) -> Option<Self> {
-        let ob_type = unsafe { Py_TYPE(obj.get_type_ptr().cast()) };
+        let ob_type = unsafe { pyo3::ffi::Py_TYPE(obj.get_type_ptr().cast()) };
         if ob_type == state.enum_.type_object.as_ptr().cast() {
             Some(Self {
-                ptr: obj.as_ptr(),
+                obj: obj.as_borrowed(),
                 state,
                 opts,
                 default,
@@ -59,27 +58,32 @@ impl Serialize for Enum<'_> {
     where
         S: Serializer,
     {
-        let value = unsafe { PyObject_GetAttr(self.ptr, self.state.enum_.value_str.as_ptr()) };
-        let result =
-            ObjectSerializer::new(value, self.state, self.opts, self.default).serialize(serializer);
-        unsafe { Py_DECREF(value) };
-        result
+        let value = self
+            .obj
+            .getattr(self.state.enum_.value_str.as_borrowed())
+            .unwrap();
+        ObjectSerializer::new(value.as_borrowed(), self.state, self.opts, self.default)
+            .serialize(serializer)
     }
 }
 
 pub struct EnumDictKey<'a> {
-    ptr: *mut PyObject,
+    obj: BorrowedPyObject<'a>,
     state: &'a SerializeState,
     opts: Opt,
 }
 
 impl<'a> EnumDictKey<'a> {
     #[inline]
-    pub fn try_new(obj: PyObjectWithType, state: &'a SerializeState, opts: Opt) -> Option<Self> {
-        let ob_type = unsafe { Py_TYPE(obj.get_type_ptr().cast()) };
+    pub fn try_new(
+        obj: PyObjectWithType<'a>,
+        state: &'a SerializeState,
+        opts: Opt,
+    ) -> Option<Self> {
+        let ob_type = unsafe { pyo3::ffi::Py_TYPE(obj.get_type_ptr().cast()) };
         if ob_type == state.enum_.type_object.as_ptr().cast() {
             Some(Self {
-                ptr: obj.as_ptr(),
+                obj: obj.as_borrowed(),
                 state,
                 opts,
             })
@@ -94,9 +98,10 @@ impl Serialize for EnumDictKey<'_> {
     where
         S: Serializer,
     {
-        let value = unsafe { PyObject_GetAttr(self.ptr, self.state.enum_.value_str.as_ptr()) };
-        let result = DictKey::new(value, self.state, self.opts).serialize(serializer);
-        unsafe { Py_DECREF(value) };
-        result
+        let value = self
+            .obj
+            .getattr(self.state.enum_.value_str.as_borrowed())
+            .unwrap();
+        DictKey::new(value.as_borrowed(), self.state, self.opts).serialize(serializer)
     }
 }

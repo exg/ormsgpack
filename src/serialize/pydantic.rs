@@ -30,19 +30,19 @@ impl State {
 }
 
 pub struct PydanticModel<'a> {
-    ptr: *mut pyo3::ffi::PyObject,
+    obj: BorrowedPyObject<'a>,
     state: &'a SerializeState,
     opts: Opt,
-    default: &'a DefaultHook,
+    default: &'a DefaultHook<'a>,
 }
 
 impl<'a> PydanticModel<'a> {
     #[inline]
     pub fn try_new(
-        obj: PyObjectWithType,
+        obj: PyObjectWithType<'a>,
         state: &'a SerializeState,
         opts: Opt,
-        default: &'a DefaultHook,
+        default: &'a DefaultHook<'a>,
     ) -> Option<Self> {
         let tp_dict = unsafe { (*obj.get_type_ptr()).tp_dict };
         if !tp_dict.is_null()
@@ -55,7 +55,7 @@ impl<'a> PydanticModel<'a> {
             }
         {
             Some(Self {
-                ptr: obj.as_ptr(),
+                obj: obj.as_borrowed(),
                 state,
                 opts,
                 default,
@@ -71,34 +71,25 @@ impl Serialize for PydanticModel<'_> {
     where
         S: Serializer,
     {
-        let dict = unsafe { pyo3::ffi::PyObject_GetAttr(self.ptr, self.state.dict_str.as_ptr()) };
-        if unlikely(dict.is_null()) {
-            unsafe { pyo3::ffi::PyErr_Clear() };
+        let maybe_dict = self.obj.getattr(self.state.dict_str.as_borrowed());
+        let Some(dict) = maybe_dict else {
             return Err(serde::ser::Error::custom(
                 "Pydantic model must have __dict__ attribute",
             ));
-        }
-
-        let extra_dict = unsafe {
-            pyo3::ffi::PyObject_GetAttr(self.ptr, self.state.pydantic.pydantic_extra_str.as_ptr())
         };
-        if extra_dict.is_null() {
-            unsafe { pyo3::ffi::PyErr_Clear() };
-            let res = self.serialize_with_no_extra(serializer, dict);
-            unsafe { pyo3::ffi::Py_DECREF(dict) };
-            res
-        } else {
-            let ob_type = unsafe { pyo3::ffi::Py_TYPE(extra_dict) };
-            let res = if ob_type == &raw mut pyo3::ffi::PyDict_Type {
-                self.serialize_with_extra(serializer, dict, extra_dict)
+
+        let maybe_extra_dict = self
+            .obj
+            .getattr(self.state.pydantic.pydantic_extra_str.as_borrowed());
+        if let Some(extra_dict) = maybe_extra_dict {
+            let ob_type = unsafe { pyo3::ffi::Py_TYPE(extra_dict.as_ptr()) };
+            if ob_type == &raw mut pyo3::ffi::PyDict_Type {
+                self.serialize_with_extra(serializer, dict.as_borrowed(), extra_dict.as_borrowed())
             } else {
-                self.serialize_with_no_extra(serializer, dict)
-            };
-            unsafe {
-                pyo3::ffi::Py_DECREF(dict);
-                pyo3::ffi::Py_DECREF(extra_dict)
-            };
-            res
+                self.serialize_with_no_extra(serializer, dict.as_borrowed())
+            }
+        } else {
+            self.serialize_with_no_extra(serializer, dict.as_borrowed())
         }
     }
 }
@@ -107,17 +98,16 @@ impl PydanticModel<'_> {
     fn serialize_with_no_extra<S>(
         &self,
         serializer: S,
-        dict: *mut pyo3::ffi::PyObject,
+        dict: BorrowedPyObject<'_>,
     ) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let len = unsafe { pydict_size(dict) } as usize;
+        let len = unsafe { pydict_size(dict.as_ptr()) } as usize;
         if unlikely(len == 0) {
             return serializer.serialize_map(Some(0))?.end();
         }
-        let mut items: SmallVec<[(&str, *mut pyo3::ffi::PyObject); 8]> =
-            SmallVec::with_capacity(len);
+        let mut items: SmallVec<[(&str, BorrowedPyObject<'_>); 8]> = SmallVec::with_capacity(len);
         for (key, value) in PyDictIter::from_pyobject(dict) {
             let ob_type = unsafe { pyo3::ffi::Py_TYPE(key.as_ptr()) };
             if unlikely(ob_type != &raw mut pyo3::ffi::PyUnicode_Type) {
@@ -127,7 +117,7 @@ impl PydanticModel<'_> {
             if unlikely(key_as_str.as_bytes()[0] == b'_') {
                 continue;
             }
-            items.push((key_as_str, value.as_ptr()));
+            items.push((key_as_str, value));
         }
 
         if self.opts & SORT_KEYS != 0 {
@@ -146,8 +136,8 @@ impl PydanticModel<'_> {
     fn serialize_with_extra<S>(
         &self,
         serializer: S,
-        dict: *mut pyo3::ffi::PyObject,
-        extra_dict: *mut pyo3::ffi::PyObject,
+        dict: BorrowedPyObject<'_>,
+        extra_dict: BorrowedPyObject<'_>,
     ) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -157,8 +147,7 @@ impl PydanticModel<'_> {
         if unlikely(len == 0) {
             return serializer.serialize_map(Some(0))?.end();
         }
-        let mut items: SmallVec<[(&str, *mut pyo3::ffi::PyObject); 8]> =
-            SmallVec::with_capacity(len);
+        let mut items: SmallVec<[(&str, BorrowedPyObject<'_>); 8]> = SmallVec::with_capacity(len);
         for (key, value) in iter {
             let ob_type = unsafe { pyo3::ffi::Py_TYPE(key.as_ptr()) };
             if unlikely(ob_type != &raw mut pyo3::ffi::PyUnicode_Type) {
@@ -168,7 +157,7 @@ impl PydanticModel<'_> {
             if unlikely(key_as_str.as_bytes()[0] == b'_') {
                 continue;
             }
-            items.push((key_as_str, value.as_ptr()));
+            items.push((key_as_str, value));
         }
 
         if self.opts & SORT_KEYS != 0 {

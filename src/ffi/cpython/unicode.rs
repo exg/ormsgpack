@@ -3,15 +3,16 @@
 #[cfg(unicode_state)]
 use crate::ffi::impl_::unicode_state::*;
 use crate::ffi::unicode::*;
+use crate::ffi::OwnedPyObject;
 use crate::str::count_chars;
 use crate::util::unlikely;
 use pyo3::ffi::*;
 
 // see unicodeobject.h for documentation
 
-pub fn unicode_from_str(buf: &str) -> *mut PyObject {
+pub fn unicode_from_str(buf: &str) -> OwnedPyObject {
     if buf.is_empty() {
-        unsafe { PyUnicode_New(0, 0) }
+        unsafe { OwnedPyObject::from_owned_ptr(PyUnicode_New(0, 0)) }
     } else {
         let num_chars = count_chars(buf.as_bytes());
         if buf.len() == num_chars {
@@ -29,54 +30,66 @@ pub fn unicode_from_str(buf: &str) -> *mut PyObject {
     }
 }
 
-fn pyunicode_ascii(buf: &str) -> *mut PyObject {
+fn pyunicode_ascii(buf: &str) -> OwnedPyObject {
     unsafe {
-        let ptr = PyUnicode_New(buf.len() as isize, 127);
-        let data_ptr = ptr.cast::<PyASCIIObject>().offset(1).cast::<u8>();
+        let obj = OwnedPyObject::from_owned_ptr(PyUnicode_New(buf.len() as isize, 127));
+        let data_ptr = obj.as_ptr().cast::<PyASCIIObject>().offset(1).cast::<u8>();
         std::ptr::copy_nonoverlapping(buf.as_ptr(), data_ptr, buf.len());
         std::ptr::write(data_ptr.add(buf.len()), 0);
-        ptr
+        obj
     }
 }
 
 #[cold]
 #[inline(never)]
-fn pyunicode_onebyte(buf: &str, num_chars: usize) -> *mut PyObject {
+fn pyunicode_onebyte(buf: &str, num_chars: usize) -> OwnedPyObject {
     unsafe {
-        let ptr = PyUnicode_New(num_chars as isize, 255);
-        let mut data_ptr = ptr.cast::<PyCompactUnicodeObject>().offset(1).cast::<u8>();
+        let obj = OwnedPyObject::from_owned_ptr(PyUnicode_New(num_chars as isize, 255));
+        let mut data_ptr = obj
+            .as_ptr()
+            .cast::<PyCompactUnicodeObject>()
+            .offset(1)
+            .cast::<u8>();
         for each in buf.chars() {
             std::ptr::write(data_ptr, each as u8);
             data_ptr = data_ptr.offset(1);
         }
         std::ptr::write(data_ptr, 0);
-        ptr
+        obj
     }
 }
 
-fn pyunicode_twobyte(buf: &str, num_chars: usize) -> *mut PyObject {
+fn pyunicode_twobyte(buf: &str, num_chars: usize) -> OwnedPyObject {
     unsafe {
-        let ptr = PyUnicode_New(num_chars as isize, 65535);
-        let mut data_ptr = ptr.cast::<PyCompactUnicodeObject>().offset(1).cast::<u16>();
+        let obj = OwnedPyObject::from_owned_ptr(PyUnicode_New(num_chars as isize, 65535));
+        let mut data_ptr = obj
+            .as_ptr()
+            .cast::<PyCompactUnicodeObject>()
+            .offset(1)
+            .cast::<u16>();
         for each in buf.chars() {
             std::ptr::write(data_ptr, each as u16);
             data_ptr = data_ptr.offset(1);
         }
         std::ptr::write(data_ptr, 0);
-        ptr
+        obj
     }
 }
 
-fn pyunicode_fourbyte(buf: &str, num_chars: usize) -> *mut PyObject {
+fn pyunicode_fourbyte(buf: &str, num_chars: usize) -> OwnedPyObject {
     unsafe {
-        let ptr = PyUnicode_New(num_chars as isize, 1114111);
-        let mut data_ptr = ptr.cast::<PyCompactUnicodeObject>().offset(1).cast::<u32>();
+        let obj = OwnedPyObject::from_owned_ptr(PyUnicode_New(num_chars as isize, 1114111));
+        let mut data_ptr = obj
+            .as_ptr()
+            .cast::<PyCompactUnicodeObject>()
+            .offset(1)
+            .cast::<u32>();
         for each in buf.chars() {
             std::ptr::write(data_ptr, each as u32);
             data_ptr = data_ptr.offset(1);
         }
         std::ptr::write(data_ptr, 0);
-        ptr
+        obj
     }
 }
 
