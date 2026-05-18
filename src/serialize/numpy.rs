@@ -7,15 +7,6 @@ use pyo3::ffi::*;
 use serde::ser::{Serialize, SerializeSeq, Serializer};
 use std::os::raw::{c_char, c_int, c_void};
 
-#[repr(C)]
-pub struct PyCapsule {
-    pub ob_base: PyObject,
-    pub pointer: *mut c_void,
-    pub name: *const c_char,
-    pub context: *mut c_void,
-    pub destructor: *mut c_void, // should be typedef void (*PyCapsule_Destructor)(PyObject *);
-}
-
 // https://numpy.org/doc/1.26/reference/arrays.interface.html#object.__array_struct__
 
 #[repr(C)]
@@ -238,9 +229,7 @@ impl NumpyArray {
     pub fn new(ptr: *mut PyObject, state: *mut State, opts: Opt) -> Result<Self, PyArrayError> {
         unsafe {
             let capsule = pyo3::ffi::PyObject_GetAttr(ptr, (*state).array_struct_str);
-            let array = (*capsule.cast::<PyCapsule>())
-                .pointer
-                .cast::<PyArrayInterface>();
+            let array = PyCapsule_GetPointer(capsule, std::ptr::null()).cast::<PyArrayInterface>();
             if (*array).two != 2 {
                 pyo3::ffi::Py_DECREF(capsule);
                 return Err(PyArrayError::Malformed);
