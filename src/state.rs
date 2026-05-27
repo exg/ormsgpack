@@ -5,7 +5,6 @@ use crate::ext::create_ext_type;
 use crate::fragment::create_fragment_type;
 use pyo3::ffi::*;
 use std::ffi::CStr;
-use std::ptr::null_mut;
 use std::sync::OnceLock;
 
 pub struct NumpyTypes {
@@ -26,16 +25,14 @@ pub struct NumpyTypes {
 }
 
 #[inline]
-unsafe fn get_type(module_dict: *mut PyObject, type_name: &CStr) -> *mut PyTypeObject {
-    PyMapping_GetItemString(module_dict, type_name.as_ptr()).cast::<PyTypeObject>()
+unsafe fn get_type(module: *mut PyObject, type_name: &CStr) -> *mut PyTypeObject {
+    PyObject_GetAttrString(module, type_name.as_ptr()).cast::<PyTypeObject>()
 }
 
 #[cold]
-unsafe fn load_type(module_name: &CStr, type_name: &CStr) -> *mut PyTypeObject {
+unsafe fn load_object(module_name: &CStr, attr_name: &CStr) -> *mut PyObject {
     let module = PyImport_ImportModule(module_name.as_ptr());
-    let module_dict = PyObject_GenericGetDict(module, null_mut());
-    let ptr = get_type(module_dict, type_name);
-    Py_DECREF(module_dict);
+    let ptr = PyObject_GetAttrString(module, attr_name.as_ptr());
     Py_DECREF(module);
     ptr
 }
@@ -49,24 +46,22 @@ fn load_numpy_types() -> Option<NumpyTypes> {
             return None;
         }
 
-        let numpy_dict = PyObject_GenericGetDict(numpy, null_mut());
         let types = NumpyTypes {
-            array: get_type(numpy_dict, c"ndarray"),
-            float16: get_type(numpy_dict, c"half"),
-            float32: get_type(numpy_dict, c"float32"),
-            float64: get_type(numpy_dict, c"float64"),
-            int8: get_type(numpy_dict, c"int8"),
-            int16: get_type(numpy_dict, c"int16"),
-            int32: get_type(numpy_dict, c"int32"),
-            int64: get_type(numpy_dict, c"int64"),
-            uint16: get_type(numpy_dict, c"uint16"),
-            uint32: get_type(numpy_dict, c"uint32"),
-            uint64: get_type(numpy_dict, c"uint64"),
-            uint8: get_type(numpy_dict, c"uint8"),
-            bool_: get_type(numpy_dict, c"bool_"),
-            datetime64: get_type(numpy_dict, c"datetime64"),
+            array: get_type(numpy, c"ndarray"),
+            float16: get_type(numpy, c"half"),
+            float32: get_type(numpy, c"float32"),
+            float64: get_type(numpy, c"float64"),
+            int8: get_type(numpy, c"int8"),
+            int16: get_type(numpy, c"int16"),
+            int32: get_type(numpy, c"int32"),
+            int64: get_type(numpy, c"int64"),
+            uint16: get_type(numpy, c"uint16"),
+            uint32: get_type(numpy, c"uint32"),
+            uint64: get_type(numpy, c"uint64"),
+            uint8: get_type(numpy, c"uint8"),
+            bool_: get_type(numpy, c"bool_"),
+            datetime64: get_type(numpy, c"datetime64"),
         };
-        Py_DECREF(numpy_dict);
         Py_DECREF(numpy);
         Some(types)
     }
@@ -76,7 +71,7 @@ fn load_numpy_types() -> Option<NumpyTypes> {
 #[repr(C)]
 pub struct State {
     numpy_types: OnceLock<Option<NumpyTypes>>,
-    pub dataclass_field_type: *mut PyTypeObject,
+    pub dataclass_field_type: *mut PyObject,
     pub enum_type: *mut PyTypeObject,
     pub ext_type: *mut PyTypeObject,
     pub fragment_type: *mut PyTypeObject,
@@ -109,11 +104,11 @@ impl State {
         unsafe {
             Self {
                 numpy_types: OnceLock::new(),
-                dataclass_field_type: load_type(c"dataclasses", c"_FIELD"),
-                enum_type: load_type(c"enum", c"EnumMeta"),
+                dataclass_field_type: load_object(c"dataclasses", c"_FIELD"),
+                enum_type: load_object(c"enum", c"EnumMeta").cast::<PyTypeObject>(),
                 ext_type: create_ext_type(),
                 fragment_type: create_fragment_type(),
-                uuid_type: load_type(c"uuid", c"UUID"),
+                uuid_type: load_object(c"uuid", c"UUID").cast::<PyTypeObject>(),
                 array_struct_str: PyUnicode_InternFromString(c"__array_struct__".as_ptr()),
                 dataclass_fields_str: PyUnicode_InternFromString(c"__dataclass_fields__".as_ptr()),
                 default_str: PyUnicode_InternFromString(c"default".as_ptr()),
