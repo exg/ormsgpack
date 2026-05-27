@@ -75,7 +75,7 @@ fn is_pseudo_field(field: *mut pyo3::ffi::PyObject, state: &SerializeState) -> b
     let field_type =
         unsafe { pyo3::ffi::PyObject_GetAttr(field, state.dataclass.field_type_str.as_ptr()) };
     unsafe { pyo3::ffi::Py_DECREF(field_type) };
-    field_type.cast::<pyo3::ffi::PyTypeObject>() != state.dataclass.field_type.as_ptr().cast()
+    field_type != state.dataclass.field_type.as_ptr()
 }
 
 impl Serialize for Dataclass<'_> {
