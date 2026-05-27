@@ -12,7 +12,7 @@ use serde::ser::{Serialize, SerializeMap, Serializer};
 use smallvec::SmallVec;
 
 pub struct State {
-    pub field_type: *mut pyo3::ffi::PyTypeObject,
+    pub field_type: *mut pyo3::ffi::PyObject,
     pub dataclass_fields_str: *mut pyo3::ffi::PyObject,
     pub field_type_str: *mut pyo3::ffi::PyObject,
 }
@@ -79,7 +79,7 @@ impl<'a> Dataclass<'a> {
 fn is_pseudo_field(field: *mut pyo3::ffi::PyObject, state: &SerializeState) -> bool {
     let field_type = unsafe { pyo3::ffi::PyObject_GetAttr(field, state.dataclass.field_type_str) };
     unsafe { pyo3::ffi::Py_DECREF(field_type) };
-    field_type.cast::<pyo3::ffi::PyTypeObject>() != state.dataclass.field_type
+    field_type != state.dataclass.field_type
 }
 
 impl Serialize for Dataclass<'_> {
