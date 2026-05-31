@@ -103,12 +103,22 @@ impl PydanticModel<'_> {
     where
         S: Serializer,
     {
+        let mut critical_section = CriticalSection::new();
+        critical_section.begin(dict.as_ptr());
         let len = unsafe { pydict_size(dict.as_ptr()) } as usize;
         if unlikely(len == 0) {
             return serializer.serialize_map(Some(0))?.end();
         }
-        let mut items: SmallVec<[(&str, BorrowedPyObject<'_>); 8]> = SmallVec::with_capacity(len);
-        for (key, value) in PyDictIter::from_pyobject(dict) {
+        let mut items: SmallVec<[(&str, OwnedPyObject, OwnedPyObject); 8]> =
+            SmallVec::with_capacity(len);
+        let mut iter = PyDictIter::from_pyobject(dict);
+        for _ in 0..len {
+            let Some((key, value)) = iter.next() else {
+                return Err(serde::ser::Error::custom(
+                    "Object modified during iteration",
+                ));
+            };
+
             let ob_type = unsafe { pyo3::ffi::Py_TYPE(key.as_ptr()) };
             if unlikely(ob_type != &raw mut pyo3::ffi::PyUnicode_Type) {
                 return Err(serde::ser::Error::custom(KEY_MUST_BE_STR));
@@ -117,7 +127,7 @@ impl PydanticModel<'_> {
             if unlikely(key_as_str.as_bytes()[0] == b'_') {
                 continue;
             }
-            items.push((key_as_str, value));
+            items.push((key_as_str, key, value));
         }
 
         if self.opts & SORT_KEYS != 0 {
@@ -125,8 +135,8 @@ impl PydanticModel<'_> {
         }
 
         let mut map = serializer.serialize_map(Some(items.len()))?;
-        for (key, value) in items.iter() {
-            let pyvalue = PyObject::new(*value, self.state, self.opts, self.default);
+        for (key, _, value) in items.iter() {
+            let pyvalue = PyObject::new(value.as_borrowed(), self.state, self.opts, self.default);
             map.serialize_key(key).unwrap();
             map.serialize_value(&pyvalue)?;
         }
@@ -142,13 +152,22 @@ impl PydanticModel<'_> {
     where
         S: Serializer,
     {
-        let iter = PyDictIter::from_pyobject(dict).chain(PyDictIter::from_pyobject(extra_dict));
+        let mut critical_section = CriticalSection2::new();
+        critical_section.begin(dict.as_ptr(), extra_dict.as_ptr());
+        let mut iter = PyDictIter::from_pyobject(dict).chain(PyDictIter::from_pyobject(extra_dict));
         let len = iter.size_hint().0;
         if unlikely(len == 0) {
             return serializer.serialize_map(Some(0))?.end();
         }
-        let mut items: SmallVec<[(&str, BorrowedPyObject<'_>); 8]> = SmallVec::with_capacity(len);
-        for (key, value) in iter {
+        let mut items: SmallVec<[(&str, OwnedPyObject, OwnedPyObject); 8]> =
+            SmallVec::with_capacity(len);
+        for _ in 0..len {
+            let Some((key, value)) = iter.next() else {
+                return Err(serde::ser::Error::custom(
+                    "Object modified during iteration",
+                ));
+            };
+
             let ob_type = unsafe { pyo3::ffi::Py_TYPE(key.as_ptr()) };
             if unlikely(ob_type != &raw mut pyo3::ffi::PyUnicode_Type) {
                 return Err(serde::ser::Error::custom(KEY_MUST_BE_STR));
@@ -157,7 +176,7 @@ impl PydanticModel<'_> {
             if unlikely(key_as_str.as_bytes()[0] == b'_') {
                 continue;
             }
-            items.push((key_as_str, value));
+            items.push((key_as_str, key, value));
         }
 
         if self.opts & SORT_KEYS != 0 {
@@ -165,8 +184,8 @@ impl PydanticModel<'_> {
         }
 
         let mut map = serializer.serialize_map(Some(items.len()))?;
-        for (key, value) in items.iter() {
-            let pyvalue = PyObject::new(*value, self.state, self.opts, self.default);
+        for (key, _, value) in items.iter() {
+            let pyvalue = PyObject::new(value.as_borrowed(), self.state, self.opts, self.default);
             map.serialize_key(key).unwrap();
             map.serialize_value(&pyvalue)?;
         }

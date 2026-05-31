@@ -87,6 +87,8 @@ impl Serialize for Dataclass<'_> {
             .obj
             .getattr(self.state.dataclass.dataclass_fields_str.as_borrowed())
             .unwrap();
+        let mut critical_section = CriticalSection::new();
+        critical_section.begin(fields.as_ptr());
         let len = unsafe { pydict_size(fields.as_ptr()) } as usize;
         if unlikely(len == 0) {
             return serializer.serialize_map(Some(0))?.end();
@@ -101,8 +103,16 @@ impl Serialize for Dataclass<'_> {
             }
         };
 
-        let mut items: SmallVec<[(&str, OwnedPyObject); 8]> = SmallVec::with_capacity(len);
-        for (attr, field) in PyDictIter::from_pyobject(fields.as_borrowed()) {
+        let mut items: SmallVec<[(&str, OwnedPyObject, OwnedPyObject); 8]> =
+            SmallVec::with_capacity(len);
+        let mut iter = PyDictIter::from_pyobject(fields.as_borrowed());
+        for _ in 0..len {
+            let Some((attr, field)) = iter.next() else {
+                return Err(serde::ser::Error::custom(
+                    "Object modified during iteration",
+                ));
+            };
+
             let key_as_str = unicode_to_str(attr.as_ptr()).map_err(serde::ser::Error::custom)?;
             if key_as_str.as_bytes()[0] == b'_' {
                 continue;
@@ -114,21 +124,21 @@ impl Serialize for Dataclass<'_> {
                     pyo3::ffi::compat::PyDict_GetItemRef(dict.as_ptr(), attr.as_ptr(), &mut value)
                 };
                 if let Some(value) = unsafe { OwnedPyObject::from_owned_ptr_or_opt(value) } {
-                    items.push((key_as_str, value));
-                } else if !is_pseudo_field(field, self.state) {
-                    let value = self.obj.getattr(attr).unwrap();
-                    items.push((key_as_str, value));
+                    items.push((key_as_str, attr, value));
+                } else if !is_pseudo_field(field.as_borrowed(), self.state) {
+                    let value = self.obj.getattr(attr.as_borrowed()).unwrap();
+                    items.push((key_as_str, attr, value));
                 }
             } else {
-                if !is_pseudo_field(field, self.state) {
-                    let value = self.obj.getattr(attr).unwrap();
-                    items.push((key_as_str, value));
+                if !is_pseudo_field(field.as_borrowed(), self.state) {
+                    let value = self.obj.getattr(attr.as_borrowed()).unwrap();
+                    items.push((key_as_str, attr, value));
                 }
             }
         }
 
         let mut map = serializer.serialize_map(Some(items.len()))?;
-        for (key, value) in items.iter() {
+        for (key, _, value) in items.iter() {
             let pyvalue = PyObject::new(value.as_borrowed(), self.state, self.opts, self.default);
             map.serialize_key(key).unwrap();
             map.serialize_value(&pyvalue)?
