@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
-use crate::ffi::CriticalSection;
+use crate::ffi::{CriticalSection, OwnedPyObject};
 use crate::opt::*;
 use crate::serialize::default::DefaultHook;
 use crate::serialize::serializer::*;
@@ -41,8 +41,16 @@ impl Serialize for List<'_> {
         let len = unsafe { pyo3::ffi::PyList_GET_SIZE(self.ptr) } as usize;
         let mut seq = serializer.serialize_seq(Some(len))?;
         for i in 0..len {
-            let item = unsafe { pyo3::ffi::PyList_GET_ITEM(self.ptr, i as isize) };
-            let value = PyObject::new(item, self.state, self.opts, self.default);
+            let item = unsafe {
+                let item_ptr = pyo3::ffi::PyList_GetItem(self.ptr, i as isize);
+                if item_ptr.is_null() {
+                    return Err(serde::ser::Error::custom(
+                        "Object modified during iteration",
+                    ));
+                }
+                OwnedPyObject::from_borrowed_ptr(item_ptr)
+            };
+            let value = PyObject::new(item.as_ptr(), self.state, self.opts, self.default);
             seq.serialize_element(&value)?;
         }
         seq.end()

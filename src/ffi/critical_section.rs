@@ -43,3 +43,45 @@ impl CriticalSection {
     #[inline(always)]
     pub fn begin(&mut self, _op: *mut PyObject) {}
 }
+
+#[cfg(Py_GIL_DISABLED)]
+pub struct CriticalSection2(PyCriticalSection2);
+
+#[cfg(Py_GIL_DISABLED)]
+impl CriticalSection2 {
+    #[inline(always)]
+    pub fn new() -> Self {
+        CriticalSection2(unsafe { std::mem::zeroed() })
+    }
+
+    #[inline(always)]
+    pub fn begin(&mut self, a: *mut PyObject, b: *mut PyObject) {
+        unsafe {
+            PyCriticalSection2_Begin(&mut self.0, a, b);
+        }
+    }
+}
+
+#[cfg(Py_GIL_DISABLED)]
+impl Drop for CriticalSection2 {
+    #[inline(always)]
+    fn drop(&mut self) {
+        unsafe {
+            PyCriticalSection2_End(&mut self.0);
+        }
+    }
+}
+
+#[cfg(not(Py_GIL_DISABLED))]
+pub struct CriticalSection2();
+
+#[cfg(not(Py_GIL_DISABLED))]
+impl CriticalSection2 {
+    #[inline(always)]
+    pub fn new() -> Self {
+        CriticalSection2()
+    }
+
+    #[inline(always)]
+    pub fn begin(&mut self, _a: *mut PyObject, _b: *mut PyObject) {}
+}

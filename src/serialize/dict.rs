@@ -66,7 +66,13 @@ impl Dict<'_> {
     {
         let len = unsafe { pydict_size(self.ptr) } as usize;
         let mut map = serializer.serialize_map(Some(len))?;
-        for (key, value) in PyDictIter::from_pyobject(self.ptr) {
+        let mut iter = PyDictIter::from_pyobject(self.ptr);
+        for _ in 0..len {
+            let Some((key, value)) = iter.next() else {
+                return Err(serde::ser::Error::custom(
+                    "Object modified during iteration",
+                ));
+            };
             if unlikely(ob_type!(key.as_ptr()) != &raw mut pyo3::ffi::PyUnicode_Type) {
                 return Err(serde::ser::Error::custom(KEY_MUST_BE_STR));
             }
@@ -84,21 +90,27 @@ impl Dict<'_> {
         S: Serializer,
     {
         let len = unsafe { pydict_size(self.ptr) } as usize;
-        let mut items: SmallVec<[(&str, *mut pyo3::ffi::PyObject); 8]> =
+        let mut items: SmallVec<[(&str, OwnedPyObject, OwnedPyObject); 8]> =
             SmallVec::with_capacity(len);
-        for (key, value) in PyDictIter::from_pyobject(self.ptr) {
+        let mut iter = PyDictIter::from_pyobject(self.ptr);
+        for _ in 0..len {
+            let Some((key, value)) = iter.next() else {
+                return Err(serde::ser::Error::custom(
+                    "Object modified during iteration",
+                ));
+            };
             if unlikely(ob_type!(key.as_ptr()) != &raw mut pyo3::ffi::PyUnicode_Type) {
                 return Err(serde::ser::Error::custom(KEY_MUST_BE_STR));
             }
             let key_as_str = unicode_to_str(key.as_ptr()).map_err(serde::ser::Error::custom)?;
-            items.push((key_as_str, value.as_ptr()));
+            items.push((key_as_str, key, value));
         }
 
         items.sort_unstable_by(|a, b| a.0.cmp(b.0));
 
         let mut map = serializer.serialize_map(Some(len))?;
-        for (key, val) in items.iter() {
-            let pyvalue = PyObject::new(*val, self.state, self.opts, self.default);
+        for (key, _, value) in items.iter() {
+            let pyvalue = PyObject::new(value.as_ptr(), self.state, self.opts, self.default);
             map.serialize_key(key).unwrap();
             map.serialize_value(&pyvalue)?;
         }
@@ -112,7 +124,13 @@ impl Dict<'_> {
     {
         let len = unsafe { pydict_size(self.ptr) } as usize;
         let mut map = serializer.serialize_map(Some(len))?;
-        for (key, value) in PyDictIter::from_pyobject(self.ptr) {
+        let mut iter = PyDictIter::from_pyobject(self.ptr);
+        for _ in 0..len {
+            let Some((key, value)) = iter.next() else {
+                return Err(serde::ser::Error::custom(
+                    "Object modified during iteration",
+                ));
+            };
             if ob_type!(key.as_ptr()) == &raw mut pyo3::ffi::PyUnicode_Type {
                 let key_as_str = unicode_to_str(key.as_ptr()).map_err(serde::ser::Error::custom)?;
                 map.serialize_entry(
