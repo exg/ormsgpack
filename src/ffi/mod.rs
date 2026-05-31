@@ -15,6 +15,8 @@ pub use unicode::*;
 use pyo3::ffi::*;
 use std::mem::ManuallyDrop;
 use std::ptr::NonNull;
+#[cfg(Py_GIL_DISABLED)]
+use std::sync::atomic::Ordering::Relaxed;
 
 #[derive(Clone, Copy)]
 pub struct PyObjectWithType {
@@ -69,7 +71,7 @@ impl PyDictIter {
 }
 
 impl Iterator for PyDictIter {
-    type Item = (NonNull<PyObject>, NonNull<PyObject>);
+    type Item = (OwnedPyObject, OwnedPyObject);
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -77,7 +79,10 @@ impl Iterator for PyDictIter {
         let mut value: *mut PyObject = std::ptr::null_mut();
         unsafe {
             if PyDict_Next(self.op, &mut self.pos, &mut key, &mut value) == 1 {
-                Some((NonNull::new_unchecked(key), NonNull::new_unchecked(value)))
+                Some((
+                    OwnedPyObject::from_borrowed_ptr(key),
+                    OwnedPyObject::from_borrowed_ptr(value),
+                ))
             } else {
                 None
             }
@@ -119,10 +124,30 @@ impl Drop for Buffer {
 #[repr(transparent)]
 pub struct OwnedPyObject(NonNull<PyObject>);
 
+#[cfg(Py_GIL_DISABLED)]
+#[inline(always)]
+unsafe fn pyobject_is_immortal(op: *mut PyObject) -> bool {
+    (*op).ob_ref_local.load(Relaxed) == u32::MAX
+}
+
+#[cfg(not(Py_GIL_DISABLED))]
+#[inline(always)]
+unsafe fn pyobject_is_immortal(_op: *mut PyObject) -> bool {
+    false
+}
+
 impl OwnedPyObject {
     #[inline]
     pub fn from_non_null(ptr: NonNull<PyObject>) -> Self {
         Self(ptr)
+    }
+
+    #[inline]
+    pub unsafe fn from_borrowed_ptr(ptr: *mut PyObject) -> Self {
+        if !pyobject_is_immortal(ptr) {
+            Py_INCREF(ptr);
+        }
+        Self(NonNull::new_unchecked(ptr))
     }
 
     #[inline]
@@ -144,7 +169,11 @@ impl OwnedPyObject {
 impl Clone for OwnedPyObject {
     #[inline]
     fn clone(&self) -> Self {
-        unsafe { Py_INCREF(self.0.as_ptr()) }
+        unsafe {
+            if !pyobject_is_immortal(self.0.as_ptr()) {
+                Py_INCREF(self.0.as_ptr())
+            }
+        }
         Self(self.0)
     }
 }
@@ -152,7 +181,11 @@ impl Clone for OwnedPyObject {
 impl Drop for OwnedPyObject {
     #[inline]
     fn drop(&mut self) {
-        unsafe { Py_DECREF(self.0.as_ptr()) }
+        unsafe {
+            if !pyobject_is_immortal(self.0.as_ptr()) {
+                Py_DECREF(self.0.as_ptr())
+            }
+        }
     }
 }
 
