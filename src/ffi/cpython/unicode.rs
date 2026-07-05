@@ -6,11 +6,13 @@ use crate::ffi::unicode::*;
 use crate::str::count_chars;
 use crate::util::unlikely;
 use pyo3::ffi::*;
+use pyo3::prelude::*;
+use pyo3::types::PyString;
 
 // see unicodeobject.h for documentation
 
-pub fn unicode_from_str(buf: &str) -> *mut PyObject {
-    if buf.is_empty() {
+pub fn unicode_from_str<'py>(py: Python<'py>, buf: &str) -> Bound<'py, PyString> {
+    let ptr = if buf.is_empty() {
         unsafe { PyUnicode_New(0, 0) }
     } else {
         let num_chars = count_chars(buf.as_bytes());
@@ -26,7 +28,8 @@ pub fn unicode_from_str(buf: &str) -> *mut PyObject {
                 pyunicode_onebyte(buf, num_chars)
             }
         }
-    }
+    };
+    unsafe { Bound::from_owned_ptr(py, ptr).cast_into_unchecked() }
 }
 
 fn pyunicode_ascii(buf: &str) -> *mut PyObject {
@@ -82,10 +85,11 @@ fn pyunicode_fourbyte(buf: &str, num_chars: usize) -> *mut PyObject {
 
 #[cfg(unicode_state)]
 #[inline]
-pub fn hash_str(op: *mut PyObject) -> Py_hash_t {
+pub fn hash_str(obj: Borrowed<'_, '_, PyString>) -> Py_hash_t {
     unsafe {
-        let ptr = pyunicode_compact_data(op);
-        let len = (*op.cast::<PyASCIIObject>()).length * pyunicode_kind(op) as Py_ssize_t;
+        let op = obj.as_ptr();
+        let ptr = pyunicode_compact_data(obj);
+        let len = (*op.cast::<PyASCIIObject>()).length * pyunicode_kind(obj) as Py_ssize_t;
         let hash = compat::Py_HashBuffer(ptr, len);
         (*op.cast::<PyASCIIObject>()).hash = hash;
         hash
@@ -94,8 +98,9 @@ pub fn hash_str(op: *mut PyObject) -> Py_hash_t {
 
 #[cfg(not(unicode_state))]
 #[inline]
-pub fn hash_str(op: *mut PyObject) -> Py_hash_t {
+pub fn hash_str(obj: Borrowed<'_, '_, PyString>) -> Py_hash_t {
     unsafe {
+        let op = obj.as_ptr();
         let ptr = PyUnicode_DATA(op);
         let len = (*op.cast::<PyASCIIObject>()).length * PyUnicode_KIND(op) as Py_ssize_t;
         let hash = compat::Py_HashBuffer(ptr, len);
@@ -106,11 +111,12 @@ pub fn hash_str(op: *mut PyObject) -> Py_hash_t {
 
 #[cfg(unicode_state)]
 #[inline]
-pub fn unicode_to_str(op: *mut PyObject) -> Result<&'static str, UnicodeError> {
+pub fn unicode_to_str<'a>(obj: Borrowed<'a, '_, PyString>) -> Result<&'a str, UnicodeError> {
     unsafe {
-        if unlikely(!pyunicode_is_compact(op)) {
-            unicode_to_str_via_ffi(op)
-        } else if pyunicode_is_ascii(op) {
+        let op = obj.as_ptr();
+        if unlikely(!pyunicode_is_compact(obj)) {
+            unicode_to_str_via_ffi(obj)
+        } else if pyunicode_is_ascii(obj) {
             let ptr = op.cast::<PyASCIIObject>().offset(1).cast::<u8>();
             let len = (*op.cast::<PyASCIIObject>()).length as usize;
             let slice = std::slice::from_raw_parts(ptr, len);
@@ -121,13 +127,13 @@ pub fn unicode_to_str(op: *mut PyObject) -> Result<&'static str, UnicodeError> {
             let slice = std::slice::from_raw_parts(ptr, len);
             Ok(std::str::from_utf8_unchecked(slice))
         } else {
-            unicode_to_str_via_ffi(op)
+            unicode_to_str_via_ffi(obj)
         }
     }
 }
 
 #[cfg(not(unicode_state))]
 #[inline]
-pub fn unicode_to_str(op: *mut PyObject) -> Result<&'static str, UnicodeError> {
-    unicode_to_str_via_ffi(op)
+pub fn unicode_to_str<'a>(obj: Borrowed<'a, '_, PyString>) -> Result<&'a str, UnicodeError> {
+    unicode_to_str_via_ffi(obj)
 }
