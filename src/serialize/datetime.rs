@@ -1,39 +1,60 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
-use crate::ffi::*;
+use crate::ffi::BorrowedWithType;
 use crate::opt::*;
 use crate::serialize::datetimelike::{DateLike, DateTimeLike, TimeLike};
-use crate::state::State;
-use crate::util::unlikely;
+use pyo3::prelude::*;
+use pyo3::types::{
+    PyDate, PyDateAccess, PyDateTime, PyDelta, PyDeltaAccess, PyString, PyTime, PyTimeAccess,
+    PyTzInfoAccess,
+};
 use serde::ser::{Serialize, Serializer};
 use serde_bytes::Bytes;
 
-#[repr(transparent)]
-pub struct Date {
-    ptr: *mut pyo3::ffi::PyObject,
+pub struct State {
+    normalize_str: Py<PyString>,
+    utcoffset_str: Py<PyString>,
 }
 
-impl Date {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject) -> Self {
-        Date { ptr: ptr }
+impl State {
+    #[cold]
+    pub fn new(py: Python<'_>) -> Self {
+        Self {
+            normalize_str: PyString::intern(py, "normalize").unbind(),
+            utcoffset_str: PyString::intern(py, "utcoffset").unbind(),
+        }
     }
 }
 
-impl DateLike for Date {
+#[repr(transparent)]
+pub struct Date<'a, 'py> {
+    obj: Borrowed<'a, 'py, PyDate>,
+}
+
+impl<'a, 'py> Date<'a, 'py> {
+    #[inline]
+    pub fn try_new(obj: BorrowedWithType<'a, 'py>) -> Option<Self> {
+        Some(Self {
+            obj: obj.cast_exact::<PyDate>()?,
+        })
+    }
+}
+
+impl DateLike for Date<'_, '_> {
     fn year(&self) -> i32 {
-        unsafe { pyo3::ffi::PyDateTime_GET_YEAR(self.ptr) as i32 }
+        self.obj.get_year()
     }
 
     fn month(&self) -> i32 {
-        unsafe { pyo3::ffi::PyDateTime_GET_MONTH(self.ptr) as i32 }
+        self.obj.get_month() as i32
     }
 
     fn day(&self) -> i32 {
-        unsafe { pyo3::ffi::PyDateTime_GET_DAY(self.ptr) as i32 }
+        self.obj.get_day() as i32
     }
 }
 
-impl Serialize for Date {
+impl Serialize for Date<'_, '_> {
     #[inline(never)]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -59,43 +80,46 @@ impl std::fmt::Display for TimeError {
     }
 }
 
-pub struct Time {
-    ptr: *mut pyo3::ffi::PyObject,
+pub struct Time<'a, 'py> {
+    obj: Borrowed<'a, 'py, PyTime>,
     opts: Opt,
 }
 
-impl Time {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject, opts: Opt) -> Result<Self, TimeError> {
-        let tzinfo = unsafe { pyo3::ffi::PyDateTime_TIME_GET_TZINFO(ptr) };
-        if tzinfo != unsafe { pyo3::ffi::Py_None() } {
+impl<'a, 'py> Time<'a, 'py> {
+    #[inline]
+    pub fn try_new(obj: BorrowedWithType<'a, 'py>, opts: Opt) -> Result<Option<Self>, TimeError> {
+        let Some(obj) = obj.cast_exact::<PyTime>() else {
+            return Ok(None);
+        };
+        if obj.get_tzinfo().is_some() {
             return Err(TimeError::HasTimezone);
         }
-        Ok(Time {
-            ptr: ptr,
+        Ok(Some(Self {
+            obj: obj,
             opts: opts,
-        })
+        }))
     }
 }
 
-impl TimeLike for Time {
+impl TimeLike for Time<'_, '_> {
     fn hour(&self) -> i32 {
-        unsafe { pyo3::ffi::PyDateTime_TIME_GET_HOUR(self.ptr) as i32 }
+        self.obj.get_hour() as i32
     }
 
     fn minute(&self) -> i32 {
-        unsafe { pyo3::ffi::PyDateTime_TIME_GET_MINUTE(self.ptr) as i32 }
+        self.obj.get_minute() as i32
     }
 
     fn second(&self) -> i32 {
-        unsafe { pyo3::ffi::PyDateTime_TIME_GET_SECOND(self.ptr) as i32 }
+        self.obj.get_second() as i32
     }
 
     fn microsecond(&self) -> i32 {
-        unsafe { pyo3::ffi::PyDateTime_TIME_GET_MICROSECOND(self.ptr) as i32 }
+        self.obj.get_microsecond() as i32
     }
 }
 
-impl Serialize for Time {
+impl Serialize for Time<'_, '_> {
     #[inline(never)]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -121,30 +145,29 @@ impl std::fmt::Display for DateTimeError {
     }
 }
 
-unsafe fn utcoffset(
-    ptr: *mut pyo3::ffi::PyObject,
-    state: *mut State,
+fn utcoffset(
+    obj: &Borrowed<'_, '_, PyDateTime>,
+    state: &State,
 ) -> Result<Option<i32>, DateTimeError> {
-    let tzinfo = pyo3::ffi::PyDateTime_DATE_GET_TZINFO(ptr);
-    if tzinfo == unsafe { pyo3::ffi::Py_None() } {
+    let Some(tzinfo) = obj.get_tzinfo() else {
         return Ok(None);
-    }
-    let py_offset: *mut pyo3::ffi::PyObject;
-    if pyo3::ffi::PyObject_HasAttr(tzinfo, (*state).normalize_str) == 1 {
-        // pytz
-        let normalized = pyobject_call_method_one_arg(tzinfo, (*state).normalize_str, ptr);
-        py_offset = pyobject_call_method_no_args(normalized, (*state).utcoffset_str);
-        pyo3::ffi::Py_DECREF(normalized);
-    } else {
-        py_offset = pyobject_call_method_one_arg(tzinfo, (*state).utcoffset_str, ptr);
-    }
-    if unlikely(py_offset.is_null()) {
-        pyo3::ffi::PyErr_Clear();
-        return Err(DateTimeError::LibraryUnsupported);
-    }
-    let day = pyo3::ffi::PyDateTime_DELTA_GET_DAYS(py_offset);
-    let second = pyo3::ffi::PyDateTime_DELTA_GET_SECONDS(py_offset);
-    pyo3::ffi::Py_DECREF(py_offset);
+    };
+    let result = {
+        let normalize_str = state.normalize_str.bind_borrowed(obj.py());
+        let utcoffset_str = state.utcoffset_str.bind_borrowed(obj.py());
+        if unsafe { pyo3::ffi::PyObject_HasAttr(tzinfo.as_ptr(), normalize_str.as_ptr()) } == 1 {
+            let normalized = tzinfo
+                .call_method1(normalize_str, (obj,))
+                .map_err(|_| DateTimeError::LibraryUnsupported)?;
+            normalized.call_method0(utcoffset_str)
+        } else {
+            tzinfo.call_method1(utcoffset_str, (obj,))
+        }
+    };
+    let delta = result.map_err(|_| DateTimeError::LibraryUnsupported)?;
+    let delta = unsafe { delta.cast_into_unchecked::<PyDelta>() };
+    let day = delta.get_days();
+    let second = delta.get_seconds();
     let offset = if day == -1 {
         // datetime.timedelta(days=-1, seconds=68400) -> -05:00
         -86400 + second
@@ -155,60 +178,64 @@ unsafe fn utcoffset(
     Ok(Some(offset))
 }
 
-pub struct DateTime {
-    ptr: *mut pyo3::ffi::PyObject,
+pub struct DateTime<'a, 'py> {
+    obj: Borrowed<'a, 'py, PyDateTime>,
     opts: Opt,
     offset: Option<i32>,
 }
 
-impl DateTime {
-    pub fn new(
-        ptr: *mut pyo3::ffi::PyObject,
-        state: *mut State,
+impl<'a, 'py> DateTime<'a, 'py> {
+    #[inline(always)]
+    pub fn try_new(
+        obj: BorrowedWithType<'a, 'py>,
+        state: &State,
         opts: Opt,
-    ) -> Result<Self, DateTimeError> {
-        let offset = unsafe { utcoffset(ptr, state)? };
-        Ok(DateTime {
-            ptr: ptr,
-            opts: opts,
+    ) -> Result<Option<Self>, DateTimeError> {
+        let Some(obj) = obj.cast_exact::<PyDateTime>() else {
+            return Ok(None);
+        };
+        let offset = utcoffset(&obj, state)?;
+        Ok(Some(Self {
+            obj: obj,
             offset: offset,
-        })
+            opts: opts,
+        }))
     }
 }
 
-impl DateLike for DateTime {
+impl DateLike for DateTime<'_, '_> {
     fn year(&self) -> i32 {
-        unsafe { pyo3::ffi::PyDateTime_GET_YEAR(self.ptr) as i32 }
+        self.obj.get_year()
     }
 
     fn month(&self) -> i32 {
-        unsafe { pyo3::ffi::PyDateTime_GET_MONTH(self.ptr) as i32 }
+        self.obj.get_month() as i32
     }
 
     fn day(&self) -> i32 {
-        unsafe { pyo3::ffi::PyDateTime_GET_DAY(self.ptr) as i32 }
+        self.obj.get_day() as i32
     }
 }
 
-impl TimeLike for DateTime {
+impl TimeLike for DateTime<'_, '_> {
     fn hour(&self) -> i32 {
-        unsafe { pyo3::ffi::PyDateTime_DATE_GET_HOUR(self.ptr) as i32 }
+        self.obj.get_hour() as i32
     }
 
     fn minute(&self) -> i32 {
-        unsafe { pyo3::ffi::PyDateTime_DATE_GET_MINUTE(self.ptr) as i32 }
+        self.obj.get_minute() as i32
     }
 
     fn second(&self) -> i32 {
-        unsafe { pyo3::ffi::PyDateTime_DATE_GET_SECOND(self.ptr) as i32 }
+        self.obj.get_second() as i32
     }
 
     fn microsecond(&self) -> i32 {
-        unsafe { pyo3::ffi::PyDateTime_DATE_GET_MICROSECOND(self.ptr) as i32 }
+        self.obj.get_microsecond() as i32
     }
 }
 
-impl DateTimeLike for DateTime {
+impl DateTimeLike for DateTime<'_, '_> {
     fn offset(&self) -> Option<i32> {
         self.offset
     }
@@ -232,7 +259,7 @@ impl DateTimeLike for DateTime {
     }
 }
 
-impl Serialize for DateTime {
+impl Serialize for DateTime<'_, '_> {
     #[inline(never)]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

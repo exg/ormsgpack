@@ -23,31 +23,17 @@ mod serialize;
 mod state;
 mod str;
 
-use crate::ffi::*;
 use pyo3::ffi::*;
+use pyo3::prelude::*;
+use pyo3::types::{PyInt, PyString, PyTuple};
 use std::ffi::CStr;
-use std::os::raw::c_char;
 use std::os::raw::c_int;
-use std::os::raw::c_long;
 use std::os::raw::c_void;
-use std::ptr::NonNull;
 
 const PACKB_DOC: &CStr =
     c"packb(obj, /, default=None, option=None)\n--\n\nSerialize Python objects to msgpack.";
 const UNPACKB_DOC: &CStr =
     c"unpackb(obj, /, *, ext_hook=None, option=None)\n--\n\nDeserialize msgpack to Python objects.";
-
-macro_rules! module_add_object {
-    ($mptr: expr, $name: expr, $object:expr) => {
-        PyModule_AddObject($mptr, $name.as_ptr(), $object);
-    };
-}
-
-macro_rules! module_add_int {
-    ($mptr:expr, $name:expr, $int:expr) => {
-        PyModule_AddIntConstant($mptr, $name.as_ptr(), $int as c_long);
-    };
-}
 
 #[allow(non_snake_case)]
 #[no_mangle]
@@ -113,94 +99,84 @@ pub unsafe extern "C" fn PyInit_ormsgpack() -> *mut PyModuleDef {
 #[allow(non_snake_case)]
 #[no_mangle]
 #[cold]
-pub unsafe extern "C" fn ormsgpack_exec(mptr: *mut PyObject) -> c_int {
-    PyDateTime_IMPORT();
+pub unsafe extern "C" fn ormsgpack_exec(op: *mut PyObject) -> c_int {
+    let py = Python::assume_attached();
+    let module = Borrowed::from_ptr(py, op).cast_unchecked::<PyModule>();
+    let result: PyResult<()> = (|| {
+        let ptr = PyModule_GetState(op).cast::<state::State>();
+        std::ptr::write(ptr, state::State::new(py)?);
+        let state = &*ptr;
 
-    let state: *mut state::State = PyModule_GetState(mptr).cast();
-    *state = state::State::new();
+        let ext_type = state.serialize.ext.type_object.bind(py);
+        let fragment_type = state.serialize.fragment.type_object.bind(py);
+        let decode_error = state.deserialize.MsgpackDecodeError.bind(py);
+        let encode_error = state.serialize.MsgpackEncodeError.bind(py);
 
-    let version = env!("CARGO_PKG_VERSION");
-    module_add_object!(
-        mptr,
-        c"__version__",
-        PyUnicode_FromStringAndSize(version.as_ptr().cast::<c_char>(), version.len() as isize)
-    );
-    module_add_object!(mptr, c"Ext", (*state).ext_type.cast::<PyObject>());
-    module_add_object!(mptr, c"Fragment", (*state).fragment_type.cast::<PyObject>());
-    module_add_object!(mptr, c"MsgpackDecodeError", (*state).MsgpackDecodeError);
-    module_add_object!(mptr, c"MsgpackEncodeError", (*state).MsgpackEncodeError);
+        module.setattr("__version__", env!("CARGO_PKG_VERSION"))?;
+        module.setattr("Ext", ext_type)?;
+        module.setattr("Fragment", fragment_type)?;
+        module.setattr("MsgpackDecodeError", decode_error)?;
+        module.setattr("MsgpackEncodeError", encode_error)?;
 
-    module_add_int!(
-        mptr,
-        c"OPT_DATETIME_AS_TIMESTAMP_EXT",
-        opt::DATETIME_AS_TIMESTAMP_EXT
-    );
-    module_add_int!(mptr, c"OPT_NAIVE_UTC", opt::NAIVE_UTC);
-    module_add_int!(mptr, c"OPT_NON_STR_KEYS", opt::NON_STR_KEYS);
-    module_add_int!(mptr, c"OPT_OMIT_MICROSECONDS", opt::OMIT_MICROSECONDS);
-    module_add_int!(mptr, c"OPT_PASSTHROUGH_BIG_INT", opt::PASSTHROUGH_BIG_INT);
-    module_add_int!(
-        mptr,
-        c"OPT_PASSTHROUGH_DATACLASS",
-        opt::PASSTHROUGH_DATACLASS
-    );
-    module_add_int!(mptr, c"OPT_PASSTHROUGH_DATETIME", opt::PASSTHROUGH_DATETIME);
-    module_add_int!(mptr, c"OPT_PASSTHROUGH_ENUM", opt::PASSTHROUGH_ENUM);
-    module_add_int!(mptr, c"OPT_PASSTHROUGH_SUBCLASS", opt::PASSTHROUGH_SUBCLASS);
-    module_add_int!(mptr, c"OPT_PASSTHROUGH_TUPLE", opt::PASSTHROUGH_TUPLE);
-    module_add_int!(mptr, c"OPT_PASSTHROUGH_UUID", opt::PASSTHROUGH_UUID);
-    module_add_int!(mptr, c"OPT_REPLACE_SURROGATES", opt::REPLACE_SURROGATES);
-    module_add_int!(mptr, c"OPT_SERIALIZE_NUMPY", opt::SERIALIZE_NUMPY);
-    module_add_int!(mptr, c"OPT_SERIALIZE_PYDANTIC", opt::SERIALIZE_PYDANTIC);
-    module_add_int!(mptr, c"OPT_SORT_KEYS", opt::SORT_KEYS);
-    module_add_int!(mptr, c"OPT_UTC_Z", opt::UTC_Z);
+        module.setattr(
+            "OPT_DATETIME_AS_TIMESTAMP_EXT",
+            opt::DATETIME_AS_TIMESTAMP_EXT,
+        )?;
+        module.setattr("OPT_NAIVE_UTC", opt::NAIVE_UTC)?;
+        module.setattr("OPT_NON_STR_KEYS", opt::NON_STR_KEYS)?;
+        module.setattr("OPT_OMIT_MICROSECONDS", opt::OMIT_MICROSECONDS)?;
+        module.setattr("OPT_PASSTHROUGH_BIG_INT", opt::PASSTHROUGH_BIG_INT)?;
+        module.setattr("OPT_PASSTHROUGH_DATACLASS", opt::PASSTHROUGH_DATACLASS)?;
+        module.setattr("OPT_PASSTHROUGH_DATETIME", opt::PASSTHROUGH_DATETIME)?;
+        module.setattr("OPT_PASSTHROUGH_ENUM", opt::PASSTHROUGH_ENUM)?;
+        module.setattr("OPT_PASSTHROUGH_SUBCLASS", opt::PASSTHROUGH_SUBCLASS)?;
+        module.setattr("OPT_PASSTHROUGH_TUPLE", opt::PASSTHROUGH_TUPLE)?;
+        module.setattr("OPT_PASSTHROUGH_UUID", opt::PASSTHROUGH_UUID)?;
+        module.setattr("OPT_REPLACE_SURROGATES", opt::REPLACE_SURROGATES)?;
+        module.setattr("OPT_SERIALIZE_NUMPY", opt::SERIALIZE_NUMPY)?;
+        module.setattr("OPT_SERIALIZE_PYDANTIC", opt::SERIALIZE_PYDANTIC)?;
+        module.setattr("OPT_SORT_KEYS", opt::SORT_KEYS)?;
+        module.setattr("OPT_UTC_Z", opt::UTC_Z)?;
 
-    0
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => 0,
+        Err(err) => {
+            err.restore(py);
+            -1
+        }
+    }
 }
 
 #[cold]
 #[inline(never)]
-fn raise_unpackb_exception(state: *mut state::State, msg: &str) -> *mut PyObject {
-    unsafe {
-        let err_msg =
-            PyUnicode_FromStringAndSize(msg.as_ptr().cast::<c_char>(), msg.len() as isize);
-        let args = PyTuple_New(1);
-        pytuple_set_item(args, 0, err_msg);
-        PyErr_SetObject((*state).MsgpackDecodeError, args);
-        Py_DECREF(args);
-    };
+fn raise_unpackb_exception(py: Python<'_>, state: &state::State, msg: &str) -> *mut PyObject {
+    state.deserialize.error(py, msg).restore(py);
     std::ptr::null_mut()
 }
 
 #[cold]
 #[inline(never)]
-fn raise_packb_exception(state: *mut state::State, msg: &str) -> *mut PyObject {
-    unsafe {
-        let err_msg =
-            PyUnicode_FromStringAndSize(msg.as_ptr().cast::<c_char>(), msg.len() as isize);
-        PyErr_SetObject((*state).MsgpackEncodeError, err_msg);
-        Py_DECREF(err_msg);
-    };
+fn raise_packb_exception(py: Python<'_>, state: &state::State, msg: &str) -> *mut PyObject {
+    state.serialize.error(py, msg).restore(py);
     std::ptr::null_mut()
 }
 
-unsafe fn parse_option_arg(
-    opts: Option<NonNull<PyObject>>,
-    mask: opt::Opt,
-) -> Result<opt::Opt, ()> {
+fn parse_option_arg(opts: Option<Borrowed<'_, '_, PyAny>>, mask: opt::Opt) -> Result<opt::Opt, ()> {
     let Some(opts) = opts else {
         return Ok(0);
     };
-    let opts = opts.as_ptr();
-    if Py_TYPE(opts) == &raw mut PyLong_Type {
-        let val = PyLong_AsLong(opts);
-        let val = opt::Opt::try_from(val).map_err(|_| ())?;
+    if opts.is_exact_instance_of::<PyInt>() {
+        let opts = unsafe { opts.cast_unchecked::<PyInt>() };
+        let val = opts.extract::<opt::Opt>().map_err(|_| ())?;
         if val & !mask == 0 {
             Ok(val)
         } else {
             Err(())
         }
-    } else if opts == Py_None() {
+    } else if opts.is_none() {
         Ok(0)
     } else {
         Err(())
@@ -214,9 +190,10 @@ pub unsafe extern "C" fn unpackb(
     nargs: Py_ssize_t,
     kwnames: *mut PyObject,
 ) -> *mut PyObject {
-    let state: *mut state::State = PyModule_GetState(module).cast();
-    let mut ext_hook: Option<NonNull<PyObject>> = None;
-    let mut optsptr: Option<NonNull<PyObject>> = None;
+    let py = Python::assume_attached();
+    let state = &*PyModule_GetState(module).cast::<state::State>();
+    let mut ext_hook_arg: Option<Borrowed<'_, '_, PyAny>> = None;
+    let mut option_arg: Option<Borrowed<'_, '_, PyAny>> = None;
 
     let num_args = PyVectorcall_NARGS(nargs as usize);
     if num_args != 1 {
@@ -225,18 +202,32 @@ pub unsafe extern "C" fn unpackb(
         } else {
             "unpackb() missing 1 required positional argument: 'obj'"
         };
-        return raise_unpackb_exception(state, msg);
+        return raise_unpackb_exception(py, state, msg);
     }
     if !kwnames.is_null() {
-        let tuple_size = Py_SIZE(kwnames);
-        for i in 0..tuple_size {
-            let arg = pytuple_get_item(kwnames, i as Py_ssize_t);
-            if PyUnicode_Compare(arg, (*state).ext_hook_str) == 0 {
-                ext_hook = Some(NonNull::new_unchecked(*args.offset(num_args + i)));
-            } else if PyUnicode_Compare(arg, (*state).option_str) == 0 {
-                optsptr = Some(NonNull::new_unchecked(*args.offset(num_args + i)));
+        let kwnames = Borrowed::from_ptr(py, kwnames).cast_unchecked::<PyTuple>();
+        for (i, keyword) in kwnames.iter_borrowed().enumerate() {
+            let keyword = keyword.cast_unchecked::<PyString>();
+            let value = Borrowed::from_ptr(py, *args.offset(num_args + i as Py_ssize_t));
+            if keyword == "ext_hook" {
+                if ext_hook_arg.replace(value).is_some() {
+                    return raise_unpackb_exception(
+                        py,
+                        state,
+                        "unpackb() got multiple values for argument: 'ext_hook'",
+                    );
+                }
+            } else if keyword == "option" {
+                if option_arg.replace(value).is_some() {
+                    return raise_unpackb_exception(
+                        py,
+                        state,
+                        "unpackb() got multiple values for argument: 'option'",
+                    );
+                }
             } else {
                 return raise_unpackb_exception(
+                    py,
                     state,
                     "unpackb() got an unexpected keyword argument",
                 );
@@ -244,14 +235,18 @@ pub unsafe extern "C" fn unpackb(
         }
     }
 
-    let opts = match parse_option_arg(optsptr, opt::UNPACKB_OPT_MASK) {
+    let opts = match parse_option_arg(option_arg, opt::UNPACKB_OPT_MASK) {
         Ok(val) => val,
-        Err(()) => return raise_unpackb_exception(state, "Invalid opts"),
+        Err(()) => return raise_unpackb_exception(py, state, "Invalid opts"),
     };
 
-    match crate::deserialize::deserialize(*args, state, ext_hook, opts) {
-        Ok(val) => val.as_ptr(),
-        Err(err) => raise_unpackb_exception(state, &err.message),
+    let obj = Borrowed::from_ptr(py, *args);
+    match crate::deserialize::deserialize(obj, &state.deserialize, ext_hook_arg, opts) {
+        Ok(val) => val.into_ptr(),
+        Err(err) => {
+            err.restore(py);
+            std::ptr::null_mut()
+        }
     }
 }
 
@@ -262,56 +257,67 @@ pub unsafe extern "C" fn packb(
     nargs: Py_ssize_t,
     kwnames: *mut PyObject,
 ) -> *mut PyObject {
-    let state: *mut state::State = PyModule_GetState(module).cast();
-    let mut default: Option<NonNull<PyObject>> = None;
-    let mut optsptr: Option<NonNull<PyObject>> = None;
+    let py = Python::assume_attached();
+    let state = &*PyModule_GetState(module).cast::<state::State>();
+    let mut default_arg: Option<Borrowed<'_, '_, PyAny>> = None;
+    let mut option_arg: Option<Borrowed<'_, '_, PyAny>> = None;
 
     let num_args = PyVectorcall_NARGS(nargs as usize);
     if num_args == 0 {
         return raise_packb_exception(
+            py,
             state,
             "packb() missing 1 required positional argument: 'obj'",
         );
     }
     if num_args >= 2 {
-        default = Some(NonNull::new_unchecked(*args.offset(1)));
+        default_arg = Some(Borrowed::from_ptr(py, *args.offset(1)));
     }
     if num_args >= 3 {
-        optsptr = Some(NonNull::new_unchecked(*args.offset(2)));
+        option_arg = Some(Borrowed::from_ptr(py, *args.offset(2)));
     }
     if !kwnames.is_null() {
-        let tuple_size = Py_SIZE(kwnames);
-        for i in 0..tuple_size {
-            let arg = pytuple_get_item(kwnames, i as Py_ssize_t);
-            if PyUnicode_Compare(arg, (*state).default_str) == 0 {
-                if default.is_some() {
+        let kwnames = Borrowed::from_ptr(py, kwnames).cast_unchecked::<PyTuple>();
+        for (i, keyword) in kwnames.iter_borrowed().enumerate() {
+            let keyword = keyword.cast_unchecked::<PyString>();
+            let value = Borrowed::from_ptr(py, *args.offset(num_args + i as Py_ssize_t));
+            if keyword == "default" {
+                if default_arg.replace(value).is_some() {
                     return raise_packb_exception(
+                        py,
                         state,
                         "packb() got multiple values for argument: 'default'",
                     );
                 }
-                default = Some(NonNull::new_unchecked(*args.offset(num_args + i)));
-            } else if PyUnicode_Compare(arg, (*state).option_str) == 0 {
-                if optsptr.is_some() {
+            } else if keyword == "option" {
+                if option_arg.replace(value).is_some() {
                     return raise_packb_exception(
+                        py,
                         state,
                         "packb() got multiple values for argument: 'option'",
                     );
                 }
-                optsptr = Some(NonNull::new_unchecked(*args.offset(num_args + i)));
             } else {
-                return raise_packb_exception(state, "packb() got an unexpected keyword argument");
+                return raise_packb_exception(
+                    py,
+                    state,
+                    "packb() got an unexpected keyword argument",
+                );
             }
         }
     }
 
-    let opts = match parse_option_arg(optsptr, opt::PACKB_OPT_MASK) {
+    let opts = match parse_option_arg(option_arg, opt::PACKB_OPT_MASK) {
         Ok(val) => val,
-        Err(()) => return raise_packb_exception(state, "Invalid opts"),
+        Err(()) => return raise_packb_exception(py, state, "Invalid opts"),
     };
 
-    match crate::serialize::serialize(*args, state, default, opts) {
-        Ok(val) => val.as_ptr(),
-        Err(err) => raise_packb_exception(state, &err),
+    let obj = Borrowed::from_ptr(py, *args);
+    match crate::serialize::serialize(obj, &state.serialize, default_arg, opts) {
+        Ok(val) => val.into_ptr(),
+        Err(err) => {
+            err.restore(py);
+            std::ptr::null_mut()
+        }
     }
 }
