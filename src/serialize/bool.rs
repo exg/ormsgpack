@@ -1,30 +1,29 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
-use crate::ffi::{pybytes_as_bytes, BorrowedWithType};
+use crate::ffi::BorrowedWithType;
 use pyo3::prelude::*;
-use pyo3::types::PyBytes;
+use pyo3::types::PyBool;
 use serde::ser::{Serialize, Serializer};
 
 #[repr(transparent)]
-pub struct Bytes<'a, 'py> {
-    obj: Borrowed<'a, 'py, PyBytes>,
+pub struct Bool<'a, 'py> {
+    obj: Borrowed<'a, 'py, PyBool>,
 }
 
-impl<'a, 'py> Bytes<'a, 'py> {
+impl<'a, 'py> Bool<'a, 'py> {
     #[inline]
     pub fn try_new(obj: BorrowedWithType<'a, 'py>) -> Option<Self> {
         Some(Self {
-            obj: obj.cast_exact::<PyBytes>()?,
+            obj: obj.cast_exact::<PyBool>()?,
         })
     }
 }
 
-impl Serialize for Bytes<'_, '_> {
+impl Serialize for Bool<'_, '_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let contents = pybytes_as_bytes(self.obj);
-        serializer.serialize_bytes(contents)
+        serializer.serialize_bool(self.obj.is_true())
     }
 }
