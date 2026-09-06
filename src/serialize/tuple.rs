@@ -16,7 +16,21 @@ pub struct Tuple<'a> {
 }
 
 impl<'a> Tuple<'a> {
-    pub fn new(
+    #[inline]
+    pub fn try_new(
+        obj: PyObjectWithType,
+        state: &'a State,
+        opts: Opt,
+        default: &'a DefaultHook,
+    ) -> Option<Self> {
+        if obj.get_type_ptr() == &raw mut pyo3::ffi::PyTuple_Type {
+            Some(Self::new(obj.as_ptr(), state, opts, default))
+        } else {
+            None
+        }
+    }
+
+    fn new(
         ptr: *mut pyo3::ffi::PyObject,
         state: &'a State,
         opts: Opt,
@@ -55,11 +69,16 @@ pub struct TupleDictKey<'a> {
 }
 
 impl<'a> TupleDictKey<'a> {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject, state: &'a State, opts: Opt) -> Self {
-        TupleDictKey {
-            ptr: ptr,
-            state: state,
-            opts: opts,
+    #[inline]
+    pub fn try_new(obj: PyObjectWithType, state: &'a State, opts: Opt) -> Option<Self> {
+        if obj.get_type_ptr() == &raw mut pyo3::ffi::PyTuple_Type {
+            Some(Self {
+                ptr: obj.as_ptr(),
+                state,
+                opts,
+            })
+        } else {
+            None
         }
     }
 }

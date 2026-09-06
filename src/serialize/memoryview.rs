@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
 use crate::ffi::Buffer;
+use crate::ffi::PyObjectWithType;
 use serde::ser::{Serialize, Serializer};
 
 #[repr(transparent)]
@@ -9,8 +10,13 @@ pub struct MemoryView {
 }
 
 impl MemoryView {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject) -> Self {
-        MemoryView { ptr }
+    #[inline]
+    pub fn try_new(obj: PyObjectWithType) -> Option<Self> {
+        if obj.get_type_ptr() == &raw mut pyo3::ffi::PyMemoryView_Type {
+            Some(Self { ptr: obj.as_ptr() })
+        } else {
+            None
+        }
     }
 }
 

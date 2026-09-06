@@ -43,15 +43,6 @@ fn has_slots(ob_type: *mut pyo3::ffi::PyTypeObject, state: &SerializeState) -> b
     }
 }
 
-#[inline]
-pub fn is_dataclass(ob_type: *mut pyo3::ffi::PyTypeObject, state: &SerializeState) -> bool {
-    unsafe {
-        let tp_dict = (*ob_type).tp_dict;
-        !tp_dict.is_null()
-            && pyo3::ffi::PyDict_Contains(tp_dict, state.dataclass.dataclass_fields_str) == 1
-    }
-}
-
 pub struct Dataclass<'a> {
     ptr: *mut pyo3::ffi::PyObject,
     state: &'a SerializeState,
@@ -60,17 +51,27 @@ pub struct Dataclass<'a> {
 }
 
 impl<'a> Dataclass<'a> {
-    pub fn new(
-        ptr: *mut pyo3::ffi::PyObject,
+    #[inline]
+    pub fn try_new(
+        obj: PyObjectWithType,
         state: &'a SerializeState,
         opts: Opt,
         default: &'a DefaultHook,
-    ) -> Self {
-        Dataclass {
-            ptr: ptr,
-            state: state,
-            opts: opts,
-            default: default,
+    ) -> Option<Self> {
+        let tp_dict = unsafe { (*obj.get_type_ptr()).tp_dict };
+        if !tp_dict.is_null()
+            && unsafe {
+                pyo3::ffi::PyDict_Contains(tp_dict, state.dataclass.dataclass_fields_str) == 1
+            }
+        {
+            Some(Self {
+                ptr: obj.as_ptr(),
+                state,
+                opts,
+                default,
+            })
+        } else {
+            None
         }
     }
 }

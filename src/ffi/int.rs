@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
+use crate::ffi::PyObjectWithType;
 use crate::util::unlikely;
 use pyo3::ffi::*;
 use serde::ser::{Serialize, Serializer};
@@ -59,6 +60,26 @@ impl std::fmt::Display for IntError {
 pub enum Int {
     Signed(i64),
     Unsigned(u64),
+}
+
+impl Int {
+    #[inline]
+    pub fn try_new_exact(obj: PyObjectWithType) -> Result<Option<Self>, IntError> {
+        if obj.get_type_ptr() == &raw mut PyLong_Type {
+            Self::new(obj.as_ptr()).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    #[inline]
+    pub fn try_new(obj: PyObjectWithType) -> Result<Option<Self>, IntError> {
+        if unsafe { PyType_HasFeature(obj.get_type_ptr(), Py_TPFLAGS_LONG_SUBCLASS) != 0 } {
+            Self::new(obj.as_ptr()).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 impl Serialize for Int {

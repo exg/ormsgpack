@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
+use crate::ffi::PyObjectWithType;
 use serde::ser::{Serialize, Serializer};
 use std::os::raw::c_uchar;
 
@@ -44,10 +45,15 @@ where
 }
 
 impl<'a> UUID<'a> {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject, state: &'a State) -> Self {
-        UUID {
-            ptr: ptr,
-            state: state,
+    #[inline]
+    pub fn try_new(obj: PyObjectWithType, state: &'a State) -> Option<Self> {
+        if obj.get_type_ptr() == state.type_object {
+            Some(Self {
+                ptr: obj.as_ptr(),
+                state,
+            })
+        } else {
+            None
         }
     }
     pub fn write_buf<W>(&self, writer: &mut W) -> Result<(), std::io::Error>

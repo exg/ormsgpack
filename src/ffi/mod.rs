@@ -15,6 +15,32 @@ pub use unicode::*;
 use pyo3::ffi::*;
 use std::ptr::NonNull;
 
+#[derive(Clone, Copy)]
+pub struct PyObjectWithType {
+    ptr: *mut PyObject,
+    type_ptr: *mut PyTypeObject,
+}
+
+impl PyObjectWithType {
+    #[inline(always)]
+    pub fn new(ptr: *mut PyObject) -> Self {
+        Self {
+            ptr,
+            type_ptr: ob_type!(ptr),
+        }
+    }
+
+    #[inline(always)]
+    pub fn as_ptr(self) -> *mut PyObject {
+        self.ptr
+    }
+
+    #[inline(always)]
+    pub fn get_type_ptr(self) -> *mut PyTypeObject {
+        self.type_ptr
+    }
+}
+
 #[inline(always)]
 pub unsafe fn pybytes_as_bytes(op: *mut PyObject) -> &'static [u8] {
     let buffer = pybytes_as_mut_u8(op);

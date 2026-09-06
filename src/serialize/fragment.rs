@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
 use crate::ffi::pybytes_as_bytes;
+use crate::ffi::PyObjectWithType;
 use crate::fragment::PyFragment;
 use serde::ser::{Serialize, Serializer};
 use serde_bytes::Bytes;
@@ -24,8 +25,13 @@ pub struct Fragment {
 }
 
 impl Fragment {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject) -> Self {
-        Fragment { ptr: ptr }
+    #[inline]
+    pub fn try_new(obj: PyObjectWithType, state: &State) -> Option<Self> {
+        if obj.get_type_ptr() == state.type_object {
+            Some(Self { ptr: obj.as_ptr() })
+        } else {
+            None
+        }
     }
 }
 
