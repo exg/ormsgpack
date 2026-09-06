@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
 use crate::deserialize::DeserializeError;
+use crate::deserialize::State;
 use crate::exc::*;
 use crate::ffi::*;
 use crate::io::Read;
 use crate::msgpack::{read_timestamp, Marker};
 use crate::opt::*;
-use crate::state::State;
 use crate::util::unlikely;
 use chrono::{Datelike, Timelike};
 use simdutf8::basic::{from_utf8, Utf8Error};
@@ -18,7 +18,7 @@ const RECURSION_LIMIT: u16 = 1024;
 
 fn deserialize_slice(
     contents: &[u8],
-    state: *mut State,
+    state: &State,
     ext_hook: Option<NonNull<pyo3::ffi::PyObject>>,
     opts: Opt,
 ) -> Result<NonNull<pyo3::ffi::PyObject>, DeserializeError<'static>> {
@@ -30,7 +30,7 @@ fn deserialize_slice(
 
 pub fn deserialize(
     ptr: *mut pyo3::ffi::PyObject,
-    state: *mut State,
+    state: &State,
     ext_hook: Option<NonNull<pyo3::ffi::PyObject>>,
     opts: Opt,
 ) -> Result<NonNull<pyo3::ffi::PyObject>, DeserializeError<'static>> {
@@ -105,21 +105,21 @@ impl From<Utf8Error> for Error {
     }
 }
 
-struct Deserializer<R> {
+struct Deserializer<'a, R> {
     data: R,
-    state: *mut State,
+    state: &'a State,
     ext_hook: Option<NonNull<pyo3::ffi::PyObject>>,
     opts: Opt,
     recursion: u16,
 }
 
-impl<R> Deserializer<R>
+impl<'a, R> Deserializer<'a, R>
 where
     R: Read,
 {
     fn new(
         data: R,
-        state: *mut State,
+        state: &'a State,
         ext_hook: Option<NonNull<pyo3::ffi::PyObject>>,
         opts: Opt,
     ) -> Self {
@@ -454,7 +454,7 @@ where
             Ok(value)
         } else {
             let data = self.data.read_slice(len as usize)?;
-            Ok(unsafe { (*self.state).key_map.get(data)? })
+            Ok(self.state.key_map.get(data)?)
         }
     }
 

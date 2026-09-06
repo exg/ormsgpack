@@ -6,6 +6,19 @@ use crate::util::unlikely;
 use serde::ser::{Serialize, Serializer};
 use serde_bytes::Bytes;
 
+pub struct State {
+    pub type_object: *mut pyo3::ffi::PyTypeObject,
+}
+
+impl State {
+    #[cold]
+    pub fn new() -> Self {
+        Self {
+            type_object: unsafe { crate::ext::create_ext_type() },
+        }
+    }
+}
+
 #[repr(transparent)]
 pub struct Ext {
     ptr: *mut pyo3::ffi::PyObject,

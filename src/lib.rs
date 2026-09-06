@@ -116,8 +116,9 @@ pub unsafe extern "C" fn PyInit_ormsgpack() -> *mut PyModuleDef {
 pub unsafe extern "C" fn ormsgpack_exec(mptr: *mut PyObject) -> c_int {
     PyDateTime_IMPORT();
 
-    let state: *mut state::State = PyModule_GetState(mptr).cast();
-    *state = state::State::new();
+    let ptr = PyModule_GetState(mptr).cast::<state::State>();
+    std::ptr::write(ptr, state::State::new());
+    let state = &*ptr;
 
     let version = env!("CARGO_PKG_VERSION");
     module_add_object!(
@@ -125,10 +126,26 @@ pub unsafe extern "C" fn ormsgpack_exec(mptr: *mut PyObject) -> c_int {
         c"__version__",
         PyUnicode_FromStringAndSize(version.as_ptr().cast::<c_char>(), version.len() as isize)
     );
-    module_add_object!(mptr, c"Ext", (*state).ext_type.cast::<PyObject>());
-    module_add_object!(mptr, c"Fragment", (*state).fragment_type.cast::<PyObject>());
-    module_add_object!(mptr, c"MsgpackDecodeError", (*state).MsgpackDecodeError);
-    module_add_object!(mptr, c"MsgpackEncodeError", (*state).MsgpackEncodeError);
+    module_add_object!(
+        mptr,
+        c"Ext",
+        state.serialize.ext.type_object.cast::<PyObject>()
+    );
+    module_add_object!(
+        mptr,
+        c"Fragment",
+        state.serialize.fragment.type_object.cast::<PyObject>()
+    );
+    module_add_object!(
+        mptr,
+        c"MsgpackDecodeError",
+        state.deserialize.MsgpackDecodeError
+    );
+    module_add_object!(
+        mptr,
+        c"MsgpackEncodeError",
+        state.serialize.MsgpackEncodeError
+    );
 
     module_add_int!(
         mptr,
@@ -160,13 +177,13 @@ pub unsafe extern "C" fn ormsgpack_exec(mptr: *mut PyObject) -> c_int {
 
 #[cold]
 #[inline(never)]
-fn raise_unpackb_exception(state: *mut state::State, msg: &str) -> *mut PyObject {
+fn raise_unpackb_exception(state: &state::State, msg: &str) -> *mut PyObject {
     unsafe {
         let err_msg =
             PyUnicode_FromStringAndSize(msg.as_ptr().cast::<c_char>(), msg.len() as isize);
         let args = PyTuple_New(1);
         pytuple_set_item(args, 0, err_msg);
-        PyErr_SetObject((*state).MsgpackDecodeError, args);
+        PyErr_SetObject(state.deserialize.MsgpackDecodeError, args);
         Py_DECREF(args);
     };
     std::ptr::null_mut()
@@ -174,11 +191,11 @@ fn raise_unpackb_exception(state: *mut state::State, msg: &str) -> *mut PyObject
 
 #[cold]
 #[inline(never)]
-fn raise_packb_exception(state: *mut state::State, msg: &str) -> *mut PyObject {
+fn raise_packb_exception(state: &state::State, msg: &str) -> *mut PyObject {
     unsafe {
         let err_msg =
             PyUnicode_FromStringAndSize(msg.as_ptr().cast::<c_char>(), msg.len() as isize);
-        PyErr_SetObject((*state).MsgpackEncodeError, err_msg);
+        PyErr_SetObject(state.serialize.MsgpackEncodeError, err_msg);
         Py_DECREF(err_msg);
     };
     std::ptr::null_mut()
@@ -214,7 +231,7 @@ pub unsafe extern "C" fn unpackb(
     nargs: Py_ssize_t,
     kwnames: *mut PyObject,
 ) -> *mut PyObject {
-    let state: *mut state::State = PyModule_GetState(module).cast();
+    let state = &*PyModule_GetState(module).cast::<state::State>();
     let mut ext_hook: Option<NonNull<PyObject>> = None;
     let mut optsptr: Option<NonNull<PyObject>> = None;
 
@@ -231,9 +248,9 @@ pub unsafe extern "C" fn unpackb(
         let tuple_size = Py_SIZE(kwnames);
         for i in 0..tuple_size {
             let arg = pytuple_get_item(kwnames, i as Py_ssize_t);
-            if PyUnicode_Compare(arg, (*state).ext_hook_str) == 0 {
+            if PyUnicode_Compare(arg, state.ext_hook_str) == 0 {
                 ext_hook = Some(NonNull::new_unchecked(*args.offset(num_args + i)));
-            } else if PyUnicode_Compare(arg, (*state).option_str) == 0 {
+            } else if PyUnicode_Compare(arg, state.option_str) == 0 {
                 optsptr = Some(NonNull::new_unchecked(*args.offset(num_args + i)));
             } else {
                 return raise_unpackb_exception(
@@ -249,7 +266,7 @@ pub unsafe extern "C" fn unpackb(
         Err(()) => return raise_unpackb_exception(state, "Invalid opts"),
     };
 
-    match crate::deserialize::deserialize(*args, state, ext_hook, opts) {
+    match crate::deserialize::deserialize(*args, &state.deserialize, ext_hook, opts) {
         Ok(val) => val.as_ptr(),
         Err(err) => raise_unpackb_exception(state, &err.message),
     }
@@ -262,7 +279,7 @@ pub unsafe extern "C" fn packb(
     nargs: Py_ssize_t,
     kwnames: *mut PyObject,
 ) -> *mut PyObject {
-    let state: *mut state::State = PyModule_GetState(module).cast();
+    let state = &*PyModule_GetState(module).cast::<state::State>();
     let mut default: Option<NonNull<PyObject>> = None;
     let mut optsptr: Option<NonNull<PyObject>> = None;
 
@@ -283,7 +300,7 @@ pub unsafe extern "C" fn packb(
         let tuple_size = Py_SIZE(kwnames);
         for i in 0..tuple_size {
             let arg = pytuple_get_item(kwnames, i as Py_ssize_t);
-            if PyUnicode_Compare(arg, (*state).default_str) == 0 {
+            if PyUnicode_Compare(arg, state.default_str) == 0 {
                 if default.is_some() {
                     return raise_packb_exception(
                         state,
@@ -291,7 +308,7 @@ pub unsafe extern "C" fn packb(
                     );
                 }
                 default = Some(NonNull::new_unchecked(*args.offset(num_args + i)));
-            } else if PyUnicode_Compare(arg, (*state).option_str) == 0 {
+            } else if PyUnicode_Compare(arg, state.option_str) == 0 {
                 if optsptr.is_some() {
                     return raise_packb_exception(
                         state,
@@ -310,7 +327,7 @@ pub unsafe extern "C" fn packb(
         Err(()) => return raise_packb_exception(state, "Invalid opts"),
     };
 
-    match crate::serialize::serialize(*args, state, default, opts) {
+    match crate::serialize::serialize(*args, &state.serialize, default, opts) {
         Ok(val) => val.as_ptr(),
         Err(err) => raise_packb_exception(state, &err),
     }

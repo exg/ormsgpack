@@ -1,12 +1,31 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
-use crate::state::State;
 use serde::ser::{Serialize, Serializer};
 use std::os::raw::c_uchar;
 
-pub struct UUID {
+pub struct State {
+    pub type_object: *mut pyo3::ffi::PyTypeObject,
+    pub int_str: *mut pyo3::ffi::PyObject,
+}
+
+impl State {
+    #[cold]
+    pub fn new() -> Self {
+        unsafe {
+            let module = pyo3::ffi::PyImport_ImportModule(c"uuid".as_ptr());
+            let type_object = pyo3::ffi::PyObject_GetAttrString(module, c"UUID".as_ptr()).cast();
+            pyo3::ffi::Py_DECREF(module);
+            Self {
+                type_object,
+                int_str: pyo3::ffi::PyUnicode_InternFromString(c"int".as_ptr()),
+            }
+        }
+    }
+}
+
+pub struct UUID<'a> {
     ptr: *mut pyo3::ffi::PyObject,
-    state: *mut State,
+    state: &'a State,
 }
 
 const HEX: [u8; 16] = *b"0123456789abcdef";
@@ -24,8 +43,8 @@ where
     Ok(())
 }
 
-impl UUID {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject, state: *mut State) -> Self {
+impl<'a> UUID<'a> {
+    pub fn new(ptr: *mut pyo3::ffi::PyObject, state: &'a State) -> Self {
         UUID {
             ptr: ptr,
             state: state,
@@ -37,7 +56,7 @@ impl UUID {
     {
         let mut buffer: [c_uchar; 16] = [0; 16];
         unsafe {
-            let value = pyo3::ffi::PyObject_GetAttr(self.ptr, (*self.state).int_str);
+            let value = pyo3::ffi::PyObject_GetAttr(self.ptr, self.state.int_str);
             #[cfg(Py_3_13)]
             {
                 pyo3::ffi::PyLong_AsNativeBytes(
@@ -75,7 +94,7 @@ impl UUID {
     }
 }
 
-impl Serialize for UUID {
+impl Serialize for UUID<'_> {
     #[inline(never)]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

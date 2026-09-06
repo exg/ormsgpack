@@ -22,14 +22,14 @@ use crate::serialize::str::*;
 use crate::serialize::tuple::*;
 use crate::serialize::uuid::*;
 use crate::serialize::writer::*;
-use crate::state::State;
+use crate::serialize::State;
 use serde::ser::{Serialize, Serializer};
 use std::os::raw::c_ulong;
 use std::ptr::NonNull;
 
 pub fn serialize(
     ptr: *mut pyo3::ffi::PyObject,
-    state: *mut State,
+    state: &State,
     default: Option<NonNull<pyo3::ffi::PyObject>>,
     opts: Opt,
 ) -> Result<NonNull<pyo3::ffi::PyObject>, String> {
@@ -54,7 +54,7 @@ fn is_subclass(op: *mut pyo3::ffi::PyTypeObject, feature: c_ulong) -> bool {
 
 pub struct PyObject<'a> {
     ptr: *mut pyo3::ffi::PyObject,
-    state: *mut State,
+    state: &'a State,
     opts: Opt,
     default: &'a DefaultHook,
 }
@@ -62,7 +62,7 @@ pub struct PyObject<'a> {
 impl<'a> PyObject<'a> {
     pub fn new(
         ptr: *mut pyo3::ffi::PyObject,
-        state: *mut State,
+        state: &'a State,
         opts: Opt,
         default: &'a DefaultHook,
     ) -> Self {
@@ -98,7 +98,7 @@ impl<'a> PyObject<'a> {
         if self.opts & PASSTHROUGH_DATETIME == 0 {
             let datetime_api = unsafe { *pyo3::ffi::PyDateTimeAPI() };
             if ob_type == datetime_api.DateTimeType {
-                match DateTime::new(self.ptr, self.state, self.opts) {
+                match DateTime::new(self.ptr, &self.state.datetime, self.opts) {
                     Ok(val) => return val.serialize(serializer),
                     Err(err) => return Err(serde::ser::Error::custom(err)),
                 }
@@ -118,11 +118,11 @@ impl<'a> PyObject<'a> {
             return Tuple::new(self.ptr, self.state, self.opts, self.default).serialize(serializer);
         }
 
-        if self.opts & PASSTHROUGH_UUID == 0 && ob_type == unsafe { (*self.state).uuid_type } {
-            return UUID::new(self.ptr, self.state).serialize(serializer);
+        if self.opts & PASSTHROUGH_UUID == 0 && ob_type == self.state.uuid.type_object {
+            return UUID::new(self.ptr, &self.state.uuid).serialize(serializer);
         }
 
-        if ob_type!(ob_type) == unsafe { (*self.state).enum_type } {
+        if ob_type!(ob_type) == self.state.enum_.type_object {
             if self.opts & PASSTHROUGH_ENUM == 0 {
                 return Enum::new(self.ptr, self.state, self.opts, self.default)
                     .serialize(serializer);
@@ -157,7 +157,7 @@ impl<'a> PyObject<'a> {
             }
         }
 
-        if ob_type == unsafe { (*self.state).ext_type } {
+        if ob_type == self.state.ext.type_object {
             return Ext::new(self.ptr).serialize(serializer);
         }
 
@@ -172,12 +172,12 @@ impl<'a> PyObject<'a> {
         }
 
         if self.opts & SERIALIZE_NUMPY != 0 {
-            if let Some(numpy_types_ref) = unsafe { (*self.state).get_numpy_types() } {
+            if let Some(numpy_types_ref) = self.state.numpy.get_types() {
                 if ob_type == numpy_types_ref.bool_ {
                     return NumpyBool::new(self.ptr).serialize(serializer);
                 }
                 if ob_type == numpy_types_ref.datetime64 {
-                    return NumpyDatetime64::new(self.ptr, self.state, self.opts)
+                    return NumpyDatetime64::new(self.ptr, &self.state.numpy, self.opts)
                         .serialize(serializer);
                 }
                 if ob_type == numpy_types_ref.float16 {
@@ -214,7 +214,7 @@ impl<'a> PyObject<'a> {
                     return NumpyUint64::new(self.ptr).serialize(serializer);
                 }
                 if ob_type == numpy_types_ref.array {
-                    match NumpyArray::new(self.ptr, self.state, self.opts) {
+                    match NumpyArray::new(self.ptr, &self.state.numpy, self.opts) {
                         Ok(val) => return val.serialize(serializer),
                         Err(PyArrayError::Malformed) => {
                             return Err(serde::ser::Error::custom("numpy array is malformed"))
@@ -238,7 +238,7 @@ impl<'a> PyObject<'a> {
             return MemoryView::new(self.ptr).serialize(serializer);
         }
 
-        if ob_type == unsafe { (*self.state).fragment_type } {
+        if ob_type == self.state.fragment.type_object {
             return Fragment::new(self.ptr).serialize(serializer);
         }
 
@@ -283,14 +283,14 @@ impl Serialize for PyObject<'_> {
     }
 }
 
-pub struct DictKey {
+pub struct DictKey<'a> {
     ptr: *mut pyo3::ffi::PyObject,
-    state: *mut State,
+    state: &'a State,
     opts: Opt,
 }
 
-impl DictKey {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject, state: *mut State, opts: Opt) -> Self {
+impl<'a> DictKey<'a> {
+    pub fn new(ptr: *mut pyo3::ffi::PyObject, state: &'a State, opts: Opt) -> Self {
         DictKey {
             ptr: ptr,
             state: state,
@@ -307,7 +307,7 @@ impl DictKey {
 
         let datetime_api = unsafe { *pyo3::ffi::PyDateTimeAPI() };
         if ob_type == datetime_api.DateTimeType {
-            match DateTime::new(self.ptr, self.state, self.opts) {
+            match DateTime::new(self.ptr, &self.state.datetime, self.opts) {
                 Ok(val) => return val.serialize(serializer),
                 Err(err) => return Err(serde::ser::Error::custom(err)),
             }
@@ -326,11 +326,11 @@ impl DictKey {
             return TupleDictKey::new(self.ptr, self.state, self.opts).serialize(serializer);
         }
 
-        if ob_type == unsafe { (*self.state).uuid_type } {
-            return UUID::new(self.ptr, self.state).serialize(serializer);
+        if ob_type == self.state.uuid.type_object {
+            return UUID::new(self.ptr, &self.state.uuid).serialize(serializer);
         }
 
-        if ob_type!(ob_type) == unsafe { (*self.state).enum_type } {
+        if ob_type!(ob_type) == self.state.enum_.type_object {
             return EnumDictKey::new(self.ptr, self.state, self.opts).serialize(serializer);
         }
 
@@ -354,7 +354,7 @@ impl DictKey {
     }
 }
 
-impl Serialize for DictKey {
+impl Serialize for DictKey<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,

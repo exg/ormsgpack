@@ -19,9 +19,11 @@ mod memoryview;
 mod numpy;
 mod pydantic;
 mod serializer;
+mod state;
 mod str;
 mod tuple;
 mod uuid;
 mod writer;
 
 pub use serializer::serialize;
+pub use state::State;

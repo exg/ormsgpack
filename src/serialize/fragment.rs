@@ -5,6 +5,19 @@ use crate::fragment::PyFragment;
 use serde::ser::{Serialize, Serializer};
 use serde_bytes::Bytes;
 
+pub struct State {
+    pub type_object: *mut pyo3::ffi::PyTypeObject,
+}
+
+impl State {
+    #[cold]
+    pub fn new() -> Self {
+        Self {
+            type_object: unsafe { crate::fragment::create_fragment_type() },
+        }
+    }
+}
+
 #[repr(transparent)]
 pub struct Fragment {
     ptr: *mut pyo3::ffi::PyObject,
