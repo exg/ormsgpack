@@ -4,33 +4,52 @@ use crate::ffi::*;
 use crate::opt::*;
 use crate::serialize::default::DefaultHook;
 use crate::serialize::serializer::*;
-use crate::state::State;
+use crate::serialize::State as SerializeState;
 use crate::util::unlikely;
 
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
 use smallvec::SmallVec;
 
-#[inline]
-fn has_slots(ob_type: *mut pyo3::ffi::PyTypeObject, state: *mut State) -> bool {
-    unsafe {
-        let tp_dict = (*ob_type).tp_dict;
-        pyo3::ffi::PyDict_Contains(tp_dict, (*state).slots_str) == 1
+pub struct State {
+    pub field_type: OwnedPyObject,
+    pub dataclass_fields_str: OwnedPyObject,
+    pub field_type_str: OwnedPyObject,
+}
+
+impl State {
+    #[cold]
+    pub fn new() -> Option<Self> {
+        let module = OwnedPyObject::try_import(c"dataclasses")?;
+        Some(Self {
+            field_type: module.getattr_string(c"_FIELD")?,
+            dataclass_fields_str: OwnedPyObject::try_intern(c"__dataclass_fields__")?,
+            field_type_str: OwnedPyObject::try_intern(c"_field_type")?,
+        })
     }
 }
 
 #[inline]
-pub fn is_dataclass(ob_type: *mut pyo3::ffi::PyTypeObject, state: *mut State) -> bool {
+fn has_slots(ob_type: *mut pyo3::ffi::PyTypeObject, state: &SerializeState) -> bool {
+    unsafe {
+        let tp_dict = (*ob_type).tp_dict;
+        pyo3::ffi::PyDict_Contains(tp_dict, state.slots_str.as_ptr()) == 1
+    }
+}
+
+#[inline]
+pub fn is_dataclass(ob_type: *mut pyo3::ffi::PyTypeObject, state: &SerializeState) -> bool {
     unsafe {
         let tp_dict = (*ob_type).tp_dict;
         !tp_dict.is_null()
-            && pyo3::ffi::PyDict_Contains(tp_dict, (*state).dataclass_fields_str) == 1
+            && pyo3::ffi::PyDict_Contains(tp_dict, state.dataclass.dataclass_fields_str.as_ptr())
+                == 1
     }
 }
 
 pub struct Dataclass<'a> {
     ptr: *mut pyo3::ffi::PyObject,
-    state: *mut State,
+    state: &'a SerializeState,
     opts: Opt,
     default: &'a DefaultHook,
 }
@@ -38,7 +57,7 @@ pub struct Dataclass<'a> {
 impl<'a> Dataclass<'a> {
     pub fn new(
         ptr: *mut pyo3::ffi::PyObject,
-        state: *mut State,
+        state: &'a SerializeState,
         opts: Opt,
         default: &'a DefaultHook,
     ) -> Self {
@@ -51,10 +70,11 @@ impl<'a> Dataclass<'a> {
     }
 }
 
-fn is_pseudo_field(field: *mut pyo3::ffi::PyObject, state: *mut State) -> bool {
-    let field_type = unsafe { pyo3::ffi::PyObject_GetAttr(field, (*state).field_type_str) };
+fn is_pseudo_field(field: *mut pyo3::ffi::PyObject, state: &SerializeState) -> bool {
+    let field_type =
+        unsafe { pyo3::ffi::PyObject_GetAttr(field, state.dataclass.field_type_str.as_ptr()) };
     unsafe { pyo3::ffi::Py_DECREF(field_type) };
-    field_type.cast::<pyo3::ffi::PyTypeObject>() != unsafe { (*state).dataclass_field_type }
+    field_type.cast::<pyo3::ffi::PyTypeObject>() != state.dataclass.field_type.as_ptr().cast()
 }
 
 impl Serialize for Dataclass<'_> {
@@ -62,8 +82,12 @@ impl Serialize for Dataclass<'_> {
     where
         S: Serializer,
     {
-        let fields =
-            unsafe { pyo3::ffi::PyObject_GetAttr(self.ptr, (*self.state).dataclass_fields_str) };
+        let fields = unsafe {
+            pyo3::ffi::PyObject_GetAttr(
+                self.ptr,
+                self.state.dataclass.dataclass_fields_str.as_ptr(),
+            )
+        };
         unsafe { pyo3::ffi::Py_DECREF(fields) };
         let len = unsafe { pydict_size(fields) } as usize;
         if unlikely(len == 0) {
@@ -75,7 +99,8 @@ impl Serialize for Dataclass<'_> {
             if has_slots(ob_type, self.state) {
                 std::ptr::null_mut()
             } else {
-                let dict = unsafe { pyo3::ffi::PyObject_GetAttr(self.ptr, (*self.state).dict_str) };
+                let dict =
+                    unsafe { pyo3::ffi::PyObject_GetAttr(self.ptr, self.state.dict_str.as_ptr()) };
                 unsafe { pyo3::ffi::Py_DECREF(dict) };
                 dict
             }

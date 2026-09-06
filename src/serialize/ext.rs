@@ -1,10 +1,25 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
 use crate::ext::PyExt;
-use crate::ffi::pybytes_as_bytes;
+use crate::ffi::{pybytes_as_bytes, OwnedPyObject};
 use crate::util::unlikely;
 use serde::ser::{Serialize, Serializer};
 use serde_bytes::Bytes;
+
+pub struct State {
+    pub type_object: OwnedPyObject,
+}
+
+impl State {
+    #[cold]
+    pub fn new() -> Option<Self> {
+        Some(Self {
+            type_object: unsafe {
+                OwnedPyObject::from_owned_ptr_or_opt(crate::ext::create_ext_type().cast())?
+            },
+        })
+    }
+}
 
 #[repr(transparent)]
 pub struct Ext {

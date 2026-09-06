@@ -5,26 +5,46 @@ use crate::ffi::*;
 use crate::opt::*;
 use crate::serialize::default::DefaultHook;
 use crate::serialize::serializer::*;
-use crate::state::State;
+use crate::serialize::State as SerializeState;
 use crate::util::unlikely;
 
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
 use smallvec::SmallVec;
 
+pub struct State {
+    pub fields_str: OwnedPyObject,
+    pub pydantic_extra_str: OwnedPyObject,
+    pub pydantic_validator_str: OwnedPyObject,
+}
+
+impl State {
+    #[cold]
+    pub fn new() -> Option<Self> {
+        Some(Self {
+            fields_str: OwnedPyObject::try_intern(c"__fields__")?,
+            pydantic_extra_str: OwnedPyObject::try_intern(c"__pydantic_extra__")?,
+            pydantic_validator_str: OwnedPyObject::try_intern(c"__pydantic_validator__")?,
+        })
+    }
+}
+
 #[inline]
-pub fn is_pydantic_model(ob_type: *mut pyo3::ffi::PyTypeObject, state: *mut State) -> bool {
+pub fn is_pydantic_model(ob_type: *mut pyo3::ffi::PyTypeObject, state: &SerializeState) -> bool {
     unsafe {
         let tp_dict = (*ob_type).tp_dict;
         !tp_dict.is_null()
-            && (pyo3::ffi::PyDict_Contains(tp_dict, (*state).fields_str) == 1
-                || pyo3::ffi::PyDict_Contains(tp_dict, (*state).pydantic_validator_str) == 1)
+            && (pyo3::ffi::PyDict_Contains(tp_dict, state.pydantic.fields_str.as_ptr()) == 1
+                || pyo3::ffi::PyDict_Contains(
+                    tp_dict,
+                    state.pydantic.pydantic_validator_str.as_ptr(),
+                ) == 1)
     }
 }
 
 pub struct PydanticModel<'a> {
     ptr: *mut pyo3::ffi::PyObject,
-    state: *mut State,
+    state: &'a SerializeState,
     opts: Opt,
     default: &'a DefaultHook,
 }
@@ -32,7 +52,7 @@ pub struct PydanticModel<'a> {
 impl<'a> PydanticModel<'a> {
     pub fn new(
         ptr: *mut pyo3::ffi::PyObject,
-        state: *mut State,
+        state: &'a SerializeState,
         opts: Opt,
         default: &'a DefaultHook,
     ) -> Self {
@@ -50,7 +70,7 @@ impl Serialize for PydanticModel<'_> {
     where
         S: Serializer,
     {
-        let dict = unsafe { pyo3::ffi::PyObject_GetAttr(self.ptr, (*self.state).dict_str) };
+        let dict = unsafe { pyo3::ffi::PyObject_GetAttr(self.ptr, self.state.dict_str.as_ptr()) };
         if unlikely(dict.is_null()) {
             unsafe { pyo3::ffi::PyErr_Clear() };
             return Err(serde::ser::Error::custom(
@@ -58,8 +78,9 @@ impl Serialize for PydanticModel<'_> {
             ));
         }
 
-        let extra_dict =
-            unsafe { pyo3::ffi::PyObject_GetAttr(self.ptr, (*self.state).pydantic_extra_str) };
+        let extra_dict = unsafe {
+            pyo3::ffi::PyObject_GetAttr(self.ptr, self.state.pydantic.pydantic_extra_str.as_ptr())
+        };
         if extra_dict.is_null() {
             unsafe { pyo3::ffi::PyErr_Clear() };
             let res = self.serialize_with_no_extra(serializer, dict);

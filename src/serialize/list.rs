@@ -4,13 +4,13 @@ use crate::ffi::CriticalSection;
 use crate::opt::*;
 use crate::serialize::default::DefaultHook;
 use crate::serialize::serializer::*;
-use crate::state::State;
+use crate::serialize::State;
 
 use serde::ser::{Serialize, SerializeSeq, Serializer};
 
 pub struct List<'a> {
     ptr: *mut pyo3::ffi::PyObject,
-    state: *mut State,
+    state: &'a State,
     opts: Opt,
     default: &'a DefaultHook,
 }
@@ -18,7 +18,7 @@ pub struct List<'a> {
 impl<'a> List<'a> {
     pub fn new(
         ptr: *mut pyo3::ffi::PyObject,
-        state: *mut State,
+        state: &'a State,
         opts: Opt,
         default: &'a DefaultHook,
     ) -> Self {

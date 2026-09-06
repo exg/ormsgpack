@@ -22,14 +22,14 @@ use crate::serialize::str::*;
 use crate::serialize::tuple::*;
 use crate::serialize::uuid::*;
 use crate::serialize::writer::*;
-use crate::state::State;
+use crate::serialize::State;
 use serde::ser::{Serialize, Serializer};
 use std::os::raw::c_ulong;
 use std::ptr::NonNull;
 
 pub fn serialize(
     ptr: *mut pyo3::ffi::PyObject,
-    state: *mut State,
+    state: &State,
     default: Option<NonNull<pyo3::ffi::PyObject>>,
     opts: Opt,
 ) -> Result<NonNull<pyo3::ffi::PyObject>, String> {
@@ -54,7 +54,7 @@ fn is_subclass(op: *mut pyo3::ffi::PyTypeObject, feature: c_ulong) -> bool {
 
 pub struct PyObject<'a> {
     ptr: *mut pyo3::ffi::PyObject,
-    state: *mut State,
+    state: &'a State,
     opts: Opt,
     default: &'a DefaultHook,
 }
@@ -62,7 +62,7 @@ pub struct PyObject<'a> {
 impl<'a> PyObject<'a> {
     pub fn new(
         ptr: *mut pyo3::ffi::PyObject,
-        state: *mut State,
+        state: &'a State,
         opts: Opt,
         default: &'a DefaultHook,
     ) -> Self {
@@ -98,7 +98,7 @@ impl<'a> PyObject<'a> {
         if self.opts & PASSTHROUGH_DATETIME == 0 {
             let datetime_api = unsafe { *pyo3::ffi::PyDateTimeAPI() };
             if ob_type == datetime_api.DateTimeType {
-                match DateTime::new(self.ptr, self.state, self.opts) {
+                match DateTime::new(self.ptr, &self.state.datetime, self.opts) {
                     Ok(val) => return val.serialize(serializer),
                     Err(err) => return Err(serde::ser::Error::custom(err)),
                 }
@@ -118,13 +118,15 @@ impl<'a> PyObject<'a> {
             return Tuple::new(self.ptr, self.state, self.opts, self.default).serialize(serializer);
         }
 
-        if self.opts & PASSTHROUGH_UUID == 0 && ob_type == unsafe { (*self.state).uuid_type } {
-            return UUID::new(self.ptr, self.state).serialize(serializer);
+        if self.opts & PASSTHROUGH_UUID == 0
+            && ob_type == self.state.uuid.type_object.as_ptr().cast()
+        {
+            return UUID::new(self.ptr, &self.state.uuid).serialize(serializer);
         }
 
         let is_enum = unsafe {
             let ob_type = pyo3::ffi::Py_TYPE(ob_type.cast());
-            ob_type == (*self.state).enum_type
+            ob_type == self.state.enum_.type_object.as_ptr().cast()
         };
         if is_enum {
             if self.opts & PASSTHROUGH_ENUM == 0 {
@@ -161,7 +163,7 @@ impl<'a> PyObject<'a> {
             }
         }
 
-        if ob_type == unsafe { (*self.state).ext_type } {
+        if ob_type == self.state.ext.type_object.as_ptr().cast() {
             return Ext::new(self.ptr).serialize(serializer);
         }
 
@@ -176,49 +178,54 @@ impl<'a> PyObject<'a> {
         }
 
         if self.opts & SERIALIZE_NUMPY != 0 {
-            if let Some(numpy_types_ref) = unsafe { (*self.state).get_numpy_types() } {
-                if ob_type == numpy_types_ref.bool_ {
+            if let Some(numpy_types_ref) = self
+                .state
+                .numpy
+                .get_types()
+                .map_err(|()| serde::ser::Error::custom("numpy initialization failed"))?
+            {
+                if ob_type == numpy_types_ref.bool_.as_ptr().cast() {
                     return NumpyBool::new(self.ptr).serialize(serializer);
                 }
-                if ob_type == numpy_types_ref.datetime64 {
-                    return NumpyDatetime64::new(self.ptr, self.state, self.opts)
+                if ob_type == numpy_types_ref.datetime64.as_ptr().cast() {
+                    return NumpyDatetime64::new(self.ptr, &self.state.numpy, self.opts)
                         .serialize(serializer);
                 }
-                if ob_type == numpy_types_ref.float16 {
+                if ob_type == numpy_types_ref.float16.as_ptr().cast() {
                     return NumpyFloat16::new(self.ptr).serialize(serializer);
                 }
-                if ob_type == numpy_types_ref.float32 {
+                if ob_type == numpy_types_ref.float32.as_ptr().cast() {
                     return NumpyFloat32::new(self.ptr).serialize(serializer);
                 }
-                if ob_type == numpy_types_ref.float64 {
+                if ob_type == numpy_types_ref.float64.as_ptr().cast() {
                     return NumpyFloat64::new(self.ptr).serialize(serializer);
                 }
-                if ob_type == numpy_types_ref.int8 {
+                if ob_type == numpy_types_ref.int8.as_ptr().cast() {
                     return NumpyInt8::new(self.ptr).serialize(serializer);
                 }
-                if ob_type == numpy_types_ref.int16 {
+                if ob_type == numpy_types_ref.int16.as_ptr().cast() {
                     return NumpyInt16::new(self.ptr).serialize(serializer);
                 }
-                if ob_type == numpy_types_ref.int32 {
+                if ob_type == numpy_types_ref.int32.as_ptr().cast() {
                     return NumpyInt32::new(self.ptr).serialize(serializer);
                 }
-                if ob_type == numpy_types_ref.int64 {
+                if ob_type == numpy_types_ref.int64.as_ptr().cast() {
                     return NumpyInt64::new(self.ptr).serialize(serializer);
                 }
-                if ob_type == numpy_types_ref.uint8 {
+                if ob_type == numpy_types_ref.uint8.as_ptr().cast() {
                     return NumpyUint8::new(self.ptr).serialize(serializer);
                 }
-                if ob_type == numpy_types_ref.uint16 {
+                if ob_type == numpy_types_ref.uint16.as_ptr().cast() {
                     return NumpyUint16::new(self.ptr).serialize(serializer);
                 }
-                if ob_type == numpy_types_ref.uint32 {
+                if ob_type == numpy_types_ref.uint32.as_ptr().cast() {
                     return NumpyUint32::new(self.ptr).serialize(serializer);
                 }
-                if ob_type == numpy_types_ref.uint64 {
+                if ob_type == numpy_types_ref.uint64.as_ptr().cast() {
                     return NumpyUint64::new(self.ptr).serialize(serializer);
                 }
-                if ob_type == numpy_types_ref.array {
-                    match NumpyArray::new(self.ptr, self.state, self.opts) {
+                if ob_type == numpy_types_ref.array.as_ptr().cast() {
+                    match NumpyArray::new(self.ptr, &self.state.numpy, self.opts) {
                         Ok(val) => return val.serialize(serializer),
                         Err(PyArrayError::Malformed) => {
                             return Err(serde::ser::Error::custom("numpy array is malformed"))
@@ -242,7 +249,7 @@ impl<'a> PyObject<'a> {
             return MemoryView::new(self.ptr).serialize(serializer);
         }
 
-        if ob_type == unsafe { (*self.state).fragment_type } {
+        if ob_type == self.state.fragment.type_object.as_ptr().cast() {
             return Fragment::new(self.ptr).serialize(serializer);
         }
 
@@ -287,14 +294,14 @@ impl Serialize for PyObject<'_> {
     }
 }
 
-pub struct DictKey {
+pub struct DictKey<'a> {
     ptr: *mut pyo3::ffi::PyObject,
-    state: *mut State,
+    state: &'a State,
     opts: Opt,
 }
 
-impl DictKey {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject, state: *mut State, opts: Opt) -> Self {
+impl<'a> DictKey<'a> {
+    pub fn new(ptr: *mut pyo3::ffi::PyObject, state: &'a State, opts: Opt) -> Self {
         DictKey {
             ptr: ptr,
             state: state,
@@ -311,7 +318,7 @@ impl DictKey {
 
         let datetime_api = unsafe { *pyo3::ffi::PyDateTimeAPI() };
         if ob_type == datetime_api.DateTimeType {
-            match DateTime::new(self.ptr, self.state, self.opts) {
+            match DateTime::new(self.ptr, &self.state.datetime, self.opts) {
                 Ok(val) => return val.serialize(serializer),
                 Err(err) => return Err(serde::ser::Error::custom(err)),
             }
@@ -330,13 +337,13 @@ impl DictKey {
             return TupleDictKey::new(self.ptr, self.state, self.opts).serialize(serializer);
         }
 
-        if ob_type == unsafe { (*self.state).uuid_type } {
-            return UUID::new(self.ptr, self.state).serialize(serializer);
+        if ob_type == self.state.uuid.type_object.as_ptr().cast() {
+            return UUID::new(self.ptr, &self.state.uuid).serialize(serializer);
         }
 
         let is_enum = unsafe {
             let ob_type = pyo3::ffi::Py_TYPE(ob_type.cast());
-            ob_type == (*self.state).enum_type
+            ob_type == self.state.enum_.type_object.as_ptr().cast()
         };
         if is_enum {
             return EnumDictKey::new(self.ptr, self.state, self.opts).serialize(serializer);
@@ -362,7 +369,7 @@ impl DictKey {
     }
 }
 
-impl Serialize for DictKey {
+impl Serialize for DictKey<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,

@@ -3,7 +3,8 @@
 mod cache;
 mod deserializer;
 mod error;
+mod state;
 
-pub use cache::KeyMap;
 pub use deserializer::deserialize;
 pub use error::DeserializeError;
+pub use state::State;

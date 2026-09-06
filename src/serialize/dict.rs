@@ -5,14 +5,14 @@ use crate::ffi::*;
 use crate::opt::*;
 use crate::serialize::default::DefaultHook;
 use crate::serialize::serializer::*;
-use crate::state::State;
+use crate::serialize::State;
 use crate::util::unlikely;
 use serde::ser::{Serialize, SerializeMap, Serializer};
 use smallvec::SmallVec;
 
 pub struct Dict<'a> {
     ptr: *mut pyo3::ffi::PyObject,
-    state: *mut State,
+    state: &'a State,
     opts: Opt,
     default: &'a DefaultHook,
 }
@@ -20,7 +20,7 @@ pub struct Dict<'a> {
 impl<'a> Dict<'a> {
     pub fn new(
         ptr: *mut pyo3::ffi::PyObject,
-        state: *mut State,
+        state: &'a State,
         opts: Opt,
         default: &'a DefaultHook,
     ) -> Self {

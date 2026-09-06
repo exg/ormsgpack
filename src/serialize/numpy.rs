@@ -1,11 +1,84 @@
 use crate::ffi::*;
 use crate::opt::*;
 use crate::serialize::datetimelike::NaiveDateTime;
-use crate::state::State;
 use chrono::{DateTime, NaiveDate, NaiveTime, TimeDelta};
 use pyo3::ffi::*;
 use serde::ser::{Serialize, SerializeSeq, Serializer};
 use std::os::raw::{c_char, c_int, c_void};
+use std::sync::OnceLock;
+
+pub struct NumpyTypes {
+    pub array: OwnedPyObject,
+    pub float64: OwnedPyObject,
+    pub float32: OwnedPyObject,
+    pub float16: OwnedPyObject,
+    pub int64: OwnedPyObject,
+    pub int32: OwnedPyObject,
+    pub int16: OwnedPyObject,
+    pub int8: OwnedPyObject,
+    pub uint64: OwnedPyObject,
+    pub uint32: OwnedPyObject,
+    pub uint16: OwnedPyObject,
+    pub uint8: OwnedPyObject,
+    pub bool_: OwnedPyObject,
+    pub datetime64: OwnedPyObject,
+}
+
+impl NumpyTypes {
+    #[cold]
+    fn load() -> Result<Option<Self>, ()> {
+        let Some(numpy) = OwnedPyObject::try_import(c"numpy") else {
+            unsafe { PyErr_Clear() };
+            return Ok(None);
+        };
+        let types = (|| {
+            Some(Self {
+                array: numpy.getattr_string(c"ndarray")?,
+                float16: numpy.getattr_string(c"half")?,
+                float32: numpy.getattr_string(c"float32")?,
+                float64: numpy.getattr_string(c"float64")?,
+                int8: numpy.getattr_string(c"int8")?,
+                int16: numpy.getattr_string(c"int16")?,
+                int32: numpy.getattr_string(c"int32")?,
+                int64: numpy.getattr_string(c"int64")?,
+                uint16: numpy.getattr_string(c"uint16")?,
+                uint32: numpy.getattr_string(c"uint32")?,
+                uint64: numpy.getattr_string(c"uint64")?,
+                uint8: numpy.getattr_string(c"uint8")?,
+                bool_: numpy.getattr_string(c"bool_")?,
+                datetime64: numpy.getattr_string(c"datetime64")?,
+            })
+        })();
+        types.map(Some).ok_or(())
+    }
+}
+
+pub struct State {
+    types: OnceLock<Option<NumpyTypes>>,
+    pub array_struct_str: OwnedPyObject,
+    pub descr_str: OwnedPyObject,
+    pub dtype_str: OwnedPyObject,
+}
+
+impl State {
+    #[cold]
+    pub fn new() -> Option<Self> {
+        Some(Self {
+            types: OnceLock::new(),
+            array_struct_str: OwnedPyObject::try_intern(c"__array_struct__")?,
+            descr_str: OwnedPyObject::try_intern(c"descr")?,
+            dtype_str: OwnedPyObject::try_intern(c"dtype")?,
+        })
+    }
+
+    pub fn get_types(&self) -> Result<&Option<NumpyTypes>, ()> {
+        if self.types.get().is_none() {
+            let types = NumpyTypes::load()?;
+            let _ = self.types.set(types);
+        }
+        Ok(self.types.get().unwrap())
+    }
+}
 
 // https://numpy.org/doc/1.26/reference/arrays.interface.html#object.__array_struct__
 
@@ -40,11 +113,7 @@ enum ItemType {
 }
 
 impl ItemType {
-    fn find(
-        array: *mut PyArrayInterface,
-        ptr: *mut PyObject,
-        state: *mut State,
-    ) -> Option<ItemType> {
+    fn find(array: *mut PyArrayInterface, ptr: *mut PyObject, state: &State) -> Option<ItemType> {
         match unsafe { ((*array).typekind, (*array).itemsize) } {
             (098, 1) => Some(ItemType::BOOL),
             (077, 8) => {
@@ -225,9 +294,9 @@ pub struct NumpyArray {
 
 impl NumpyArray {
     #[inline(never)]
-    pub fn new(ptr: *mut PyObject, state: *mut State, opts: Opt) -> Result<Self, PyArrayError> {
+    pub fn new(ptr: *mut PyObject, state: &State, opts: Opt) -> Result<Self, PyArrayError> {
         unsafe {
-            let capsule = pyo3::ffi::PyObject_GetAttr(ptr, (*state).array_struct_str);
+            let capsule = pyo3::ffi::PyObject_GetAttr(ptr, state.array_struct_str.as_ptr());
             let array = PyCapsule_GetPointer(capsule, std::ptr::null()).cast::<PyArrayInterface>();
             if (*array).two != 2 {
                 pyo3::ffi::Py_DECREF(capsule);
@@ -401,10 +470,10 @@ impl NumpyDatetimeUnit {
     /// object rather than using the `descr` field of the `__array_struct__`
     /// because that field isn't populated for datetime64 arrays; see
     /// https://github.com/numpy/numpy/issues/5350.
-    fn from_pyobject(ptr: *mut PyObject, state: *mut State) -> Self {
+    fn from_pyobject(ptr: *mut PyObject, state: &State) -> Self {
         let uni = unsafe {
-            let dtype = pyo3::ffi::PyObject_GetAttr(ptr, (*state).dtype_str);
-            let descr = pyo3::ffi::PyObject_GetAttr(dtype, (*state).descr_str);
+            let dtype = pyo3::ffi::PyObject_GetAttr(ptr, state.dtype_str.as_ptr());
+            let descr = pyo3::ffi::PyObject_GetAttr(dtype, state.descr_str.as_ptr());
             let el0 = pyo3::ffi::PyList_GET_ITEM(descr, 0);
             let descr_str = pytuple_get_item(el0, 1);
             let uni = unicode_to_str(descr_str).unwrap();
@@ -664,19 +733,19 @@ struct NumpyDatetime64Object {
     value: i64,
 }
 
-pub struct NumpyDatetime64 {
+pub struct NumpyDatetime64<'a> {
     ptr: *mut PyObject,
-    state: *mut State,
+    state: &'a State,
     opts: Opt,
 }
 
-impl NumpyDatetime64 {
-    pub fn new(ptr: *mut PyObject, state: *mut State, opts: Opt) -> Self {
+impl<'a> NumpyDatetime64<'a> {
+    pub fn new(ptr: *mut PyObject, state: &'a State, opts: Opt) -> Self {
         NumpyDatetime64 { ptr, state, opts }
     }
 }
 
-impl Serialize for NumpyDatetime64 {
+impl Serialize for NumpyDatetime64<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
