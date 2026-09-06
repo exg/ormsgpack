@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
 use crate::ffi::pybytes_as_bytes;
+use crate::ffi::PyObjectWithType;
 use serde::ser::{Serialize, Serializer};
 
 #[repr(transparent)]
@@ -9,8 +10,13 @@ pub struct Bytes {
 }
 
 impl Bytes {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject) -> Self {
-        Bytes { ptr: ptr }
+    #[inline]
+    pub fn try_new(obj: PyObjectWithType) -> Option<Self> {
+        if obj.get_type_ptr() == &raw mut pyo3::ffi::PyBytes_Type {
+            Some(Self { ptr: obj.as_ptr() })
+        } else {
+            None
+        }
     }
 }
 

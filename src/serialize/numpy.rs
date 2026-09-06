@@ -1,3 +1,4 @@
+use crate::ffi::PyObjectWithType;
 use crate::ffi::*;
 use crate::opt::*;
 use crate::serialize::datetimelike::NaiveDateTime;
@@ -293,8 +294,22 @@ pub struct NumpyArray {
 }
 
 impl NumpyArray {
+    #[inline]
+    pub fn try_new(
+        obj: PyObjectWithType,
+        types: &NumpyTypes,
+        state: &State,
+        opts: Opt,
+    ) -> Result<Option<Self>, PyArrayError> {
+        if obj.get_type_ptr() == types.array.as_ptr().cast() {
+            Self::new(obj.as_ptr(), state, opts).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
     #[inline(never)]
-    pub fn new(ptr: *mut PyObject, state: &State, opts: Opt) -> Result<Self, PyArrayError> {
+    fn new(ptr: *mut PyObject, state: &State, opts: Opt) -> Result<Self, PyArrayError> {
         unsafe {
             let capsule = pyo3::ffi::PyObject_GetAttr(ptr, state.array_struct_str.as_ptr());
             let array = PyCapsule_GetPointer(capsule, std::ptr::null()).cast::<PyArrayInterface>();
@@ -685,7 +700,7 @@ impl NumpyDatetimeUnit {
 }
 
 macro_rules! define_numpy_type {
-    ($name:ident, $object_name:ident, $type:ty) => {
+    ($name:ident, $object_name:ident, $type:ty, $type_name:ident) => {
         #[repr(C)]
         struct $object_name {
             ob_base: PyObject,
@@ -698,8 +713,13 @@ macro_rules! define_numpy_type {
         }
 
         impl $name {
-            pub fn new(ptr: *mut PyObject) -> Self {
-                $name { ptr }
+            #[inline]
+            pub fn try_new(obj: PyObjectWithType, types: &NumpyTypes) -> Option<Self> {
+                if obj.get_type_ptr() == types.$type_name.as_ptr().cast() {
+                    Some(Self { ptr: obj.as_ptr() })
+                } else {
+                    None
+                }
             }
         }
 
@@ -715,17 +735,17 @@ macro_rules! define_numpy_type {
     };
 }
 
-define_numpy_type!(NumpyBool, NumpyBoolObject, bool);
-define_numpy_type!(NumpyFloat32, NumpyFloat32Object, f32);
-define_numpy_type!(NumpyFloat64, NumpyFloat64Object, f64);
-define_numpy_type!(NumpyInt8, NumpyInt8Object, i8);
-define_numpy_type!(NumpyInt16, NumpyInt16Object, i16);
-define_numpy_type!(NumpyInt32, NumpyInt32Object, i32);
-define_numpy_type!(NumpyInt64, NumpyInt64Object, i64);
-define_numpy_type!(NumpyUint8, NumpyUint8Object, u8);
-define_numpy_type!(NumpyUint16, NumpyUint16Object, u16);
-define_numpy_type!(NumpyUint32, NumpyUint32Object, u32);
-define_numpy_type!(NumpyUint64, NumpyUint64Object, u64);
+define_numpy_type!(NumpyBool, NumpyBoolObject, bool, bool_);
+define_numpy_type!(NumpyFloat32, NumpyFloat32Object, f32, float32);
+define_numpy_type!(NumpyFloat64, NumpyFloat64Object, f64, float64);
+define_numpy_type!(NumpyInt8, NumpyInt8Object, i8, int8);
+define_numpy_type!(NumpyInt16, NumpyInt16Object, i16, int16);
+define_numpy_type!(NumpyInt32, NumpyInt32Object, i32, int32);
+define_numpy_type!(NumpyInt64, NumpyInt64Object, i64, int64);
+define_numpy_type!(NumpyUint8, NumpyUint8Object, u8, uint8);
+define_numpy_type!(NumpyUint16, NumpyUint16Object, u16, uint16);
+define_numpy_type!(NumpyUint32, NumpyUint32Object, u32, uint32);
+define_numpy_type!(NumpyUint64, NumpyUint64Object, u64, uint64);
 
 #[repr(C)]
 struct NumpyDatetime64Object {
@@ -740,8 +760,22 @@ pub struct NumpyDatetime64<'a> {
 }
 
 impl<'a> NumpyDatetime64<'a> {
-    pub fn new(ptr: *mut PyObject, state: &'a State, opts: Opt) -> Self {
-        NumpyDatetime64 { ptr, state, opts }
+    #[inline]
+    pub fn try_new(
+        obj: PyObjectWithType,
+        types: &NumpyTypes,
+        state: &'a State,
+        opts: Opt,
+    ) -> Option<Self> {
+        if obj.get_type_ptr() == types.datetime64.as_ptr().cast() {
+            Some(Self {
+                ptr: obj.as_ptr(),
+                state,
+                opts,
+            })
+        } else {
+            None
+        }
     }
 }
 
@@ -770,8 +804,13 @@ pub struct NumpyFloat16 {
 }
 
 impl NumpyFloat16 {
-    pub fn new(ptr: *mut PyObject) -> Self {
-        NumpyFloat16 { ptr }
+    #[inline]
+    pub fn try_new(obj: PyObjectWithType, types: &NumpyTypes) -> Option<Self> {
+        if obj.get_type_ptr() == types.float16.as_ptr().cast() {
+            Some(Self { ptr: obj.as_ptr() })
+        } else {
+            None
+        }
     }
 }
 

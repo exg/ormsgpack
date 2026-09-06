@@ -18,7 +18,38 @@ pub struct Dict<'a> {
 }
 
 impl<'a> Dict<'a> {
-    pub fn new(
+    #[inline]
+    pub fn try_new_exact(
+        obj: PyObjectWithType,
+        state: &'a State,
+        opts: Opt,
+        default: &'a DefaultHook,
+    ) -> Option<Self> {
+        if obj.get_type_ptr() == &raw mut pyo3::ffi::PyDict_Type {
+            Some(Self::new(obj.as_ptr(), state, opts, default))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn try_new(
+        obj: PyObjectWithType,
+        state: &'a State,
+        opts: Opt,
+        default: &'a DefaultHook,
+    ) -> Option<Self> {
+        if unsafe {
+            pyo3::ffi::PyType_HasFeature(obj.get_type_ptr(), pyo3::ffi::Py_TPFLAGS_DICT_SUBCLASS)
+                != 0
+        } {
+            Some(Self::new(obj.as_ptr(), state, opts, default))
+        } else {
+            None
+        }
+    }
+
+    fn new(
         ptr: *mut pyo3::ffi::PyObject,
         state: &'a State,
         opts: Opt,

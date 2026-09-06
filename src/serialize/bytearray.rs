@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
+use crate::ffi::PyObjectWithType;
 use crate::ffi::{pybytearray_as_bytes, CriticalSection};
 use serde::ser::{Serialize, Serializer};
 
@@ -9,8 +10,13 @@ pub struct ByteArray {
 }
 
 impl ByteArray {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject) -> Self {
-        ByteArray { ptr }
+    #[inline]
+    pub fn try_new(obj: PyObjectWithType) -> Option<Self> {
+        if obj.get_type_ptr() == &raw mut pyo3::ffi::PyByteArray_Type {
+            Some(Self { ptr: obj.as_ptr() })
+        } else {
+            None
+        }
     }
 }
 

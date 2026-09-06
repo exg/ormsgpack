@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
+use crate::ffi::PyObjectWithType;
 use crate::ffi::*;
 use crate::opt::*;
 use crate::serialize::datetimelike::{DateLike, DateTimeLike, TimeLike};
@@ -28,8 +29,14 @@ pub struct Date {
 }
 
 impl Date {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject) -> Self {
-        Date { ptr: ptr }
+    #[inline]
+    pub fn try_new(obj: PyObjectWithType) -> Option<Self> {
+        let datetime_api = unsafe { *pyo3::ffi::PyDateTimeAPI() };
+        if obj.get_type_ptr() == datetime_api.DateType {
+            Some(Self { ptr: obj.as_ptr() })
+        } else {
+            None
+        }
     }
 }
 
@@ -79,15 +86,21 @@ pub struct Time {
 }
 
 impl Time {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject, opts: Opt) -> Result<Self, TimeError> {
+    #[inline]
+    pub fn try_new(obj: PyObjectWithType, opts: Opt) -> Result<Option<Self>, TimeError> {
+        let datetime_api = unsafe { *pyo3::ffi::PyDateTimeAPI() };
+        if obj.get_type_ptr() != datetime_api.TimeType {
+            return Ok(None);
+        }
+        let ptr = obj.as_ptr();
         let tzinfo = unsafe { pyo3::ffi::PyDateTime_TIME_GET_TZINFO(ptr) };
         if tzinfo != unsafe { pyo3::ffi::Py_None() } {
             return Err(TimeError::HasTimezone);
         }
-        Ok(Time {
+        Ok(Some(Self {
             ptr: ptr,
             opts: opts,
-        })
+        }))
     }
 }
 
@@ -176,17 +189,23 @@ pub struct DateTime {
 }
 
 impl DateTime {
-    pub fn new(
-        ptr: *mut pyo3::ffi::PyObject,
+    #[inline]
+    pub fn try_new(
+        obj: PyObjectWithType,
         state: &State,
         opts: Opt,
-    ) -> Result<Self, DateTimeError> {
+    ) -> Result<Option<Self>, DateTimeError> {
+        let datetime_api = unsafe { *pyo3::ffi::PyDateTimeAPI() };
+        if obj.get_type_ptr() != datetime_api.DateTimeType {
+            return Ok(None);
+        }
+        let ptr = obj.as_ptr();
         let offset = unsafe { utcoffset(ptr, state)? };
-        Ok(DateTime {
+        Ok(Some(Self {
             ptr: ptr,
             opts: opts,
             offset: offset,
-        })
+        }))
     }
 }
 

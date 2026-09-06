@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
-use crate::ffi::CriticalSection;
+use crate::ffi::{CriticalSection, PyObjectWithType};
 use crate::opt::*;
 use crate::serialize::default::DefaultHook;
 use crate::serialize::serializer::*;
@@ -16,7 +16,38 @@ pub struct List<'a> {
 }
 
 impl<'a> List<'a> {
-    pub fn new(
+    #[inline]
+    pub fn try_new_exact(
+        obj: PyObjectWithType,
+        state: &'a State,
+        opts: Opt,
+        default: &'a DefaultHook,
+    ) -> Option<Self> {
+        if obj.get_type_ptr() == &raw mut pyo3::ffi::PyList_Type {
+            Some(Self::new(obj.as_ptr(), state, opts, default))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn try_new(
+        obj: PyObjectWithType,
+        state: &'a State,
+        opts: Opt,
+        default: &'a DefaultHook,
+    ) -> Option<Self> {
+        if unsafe {
+            pyo3::ffi::PyType_HasFeature(obj.get_type_ptr(), pyo3::ffi::Py_TPFLAGS_LIST_SUBCLASS)
+                != 0
+        } {
+            Some(Self::new(obj.as_ptr(), state, opts, default))
+        } else {
+            None
+        }
+    }
+
+    fn new(
         ptr: *mut pyo3::ffi::PyObject,
         state: &'a State,
         opts: Opt,

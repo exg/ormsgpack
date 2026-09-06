@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
-use crate::ffi::OwnedPyObject;
+use crate::ffi::{OwnedPyObject, PyObjectWithType};
 use crate::opt::Opt;
 use crate::serialize::default::DefaultHook;
 use crate::serialize::serializer::{DictKey, PyObject as ObjectSerializer};
@@ -33,17 +33,23 @@ pub struct Enum<'a> {
 }
 
 impl<'a> Enum<'a> {
-    pub fn new(
-        ptr: *mut PyObject,
+    #[inline]
+    pub fn try_new(
+        obj: PyObjectWithType,
         state: &'a SerializeState,
         opts: Opt,
         default: &'a DefaultHook,
-    ) -> Self {
-        Self {
-            ptr: ptr,
-            state: state,
-            opts: opts,
-            default: default,
+    ) -> Option<Self> {
+        let ob_type = unsafe { Py_TYPE(obj.get_type_ptr().cast()) };
+        if ob_type == state.enum_.type_object.as_ptr().cast() {
+            Some(Self {
+                ptr: obj.as_ptr(),
+                state,
+                opts,
+                default,
+            })
+        } else {
+            None
         }
     }
 }
@@ -68,11 +74,17 @@ pub struct EnumDictKey<'a> {
 }
 
 impl<'a> EnumDictKey<'a> {
-    pub fn new(ptr: *mut PyObject, state: &'a SerializeState, opts: Opt) -> Self {
-        Self {
-            ptr: ptr,
-            state: state,
-            opts: opts,
+    #[inline]
+    pub fn try_new(obj: PyObjectWithType, state: &'a SerializeState, opts: Opt) -> Option<Self> {
+        let ob_type = unsafe { Py_TYPE(obj.get_type_ptr().cast()) };
+        if ob_type == state.enum_.type_object.as_ptr().cast() {
+            Some(Self {
+                ptr: obj.as_ptr(),
+                state,
+                opts,
+            })
+        } else {
+            None
         }
     }
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
+use crate::ffi::PyObjectWithType;
 use crate::ffi::*;
 use crate::opt::*;
 use crate::util::unlikely;
@@ -47,10 +48,15 @@ pub struct Str {
 }
 
 impl Str {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject, opts: Opt) -> Self {
-        Str {
-            ptr: ptr,
-            opts: opts,
+    #[inline]
+    pub fn try_new(obj: PyObjectWithType, opts: Opt) -> Option<Self> {
+        if obj.get_type_ptr() == &raw mut pyo3::ffi::PyUnicode_Type {
+            Some(Self {
+                ptr: obj.as_ptr(),
+                opts,
+            })
+        } else {
+            None
         }
     }
 }
@@ -79,10 +85,18 @@ pub struct StrSubclass {
 }
 
 impl StrSubclass {
-    pub fn new(ptr: *mut pyo3::ffi::PyObject, opts: Opt) -> Self {
-        StrSubclass {
-            ptr: ptr,
-            opts: opts,
+    #[inline]
+    pub fn try_new(obj: PyObjectWithType, opts: Opt) -> Option<Self> {
+        if unsafe {
+            pyo3::ffi::PyType_HasFeature(obj.get_type_ptr(), pyo3::ffi::Py_TPFLAGS_UNICODE_SUBCLASS)
+                != 0
+        } {
+            Some(Self {
+                ptr: obj.as_ptr(),
+                opts,
+            })
+        } else {
+            None
         }
     }
 }
