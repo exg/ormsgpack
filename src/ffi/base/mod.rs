@@ -9,11 +9,6 @@ mod unicode;
 pub use unicode::*;
 
 #[inline(always)]
-pub unsafe fn pybytes_as_mut_u8(op: *mut PyObject) -> *mut u8 {
-    PyBytes_AsString(op).cast::<u8>()
-}
-
-#[inline(always)]
 pub unsafe fn pydict_size(mp: *mut PyObject) -> Py_ssize_t {
     PyDict_Size(mp)
 }
