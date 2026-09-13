@@ -99,26 +99,39 @@ impl<'a, 'py> PydanticModel<'a, 'py> {
         if unlikely(len == 0) {
             return serializer.serialize_map(0, |_| Ok(()));
         }
-        let mut items: SmallVec<[(&str, Borrowed<'a, 'py, PyAny>); 8]> =
-            SmallVec::with_capacity(len);
-        for (key, value) in PyDictIter::new(dict) {
-            let Some(key) = cast_exact::<PyString>(key) else {
+        let mut items: SmallVec<
+            [(
+                PyCollectionItem<'a, 'py, PyString>,
+                PyCollectionItem<'a, 'py, PyAny>,
+            ); 8],
+        > = SmallVec::with_capacity(len);
+        let mut iter = PyDictIter::new(dict);
+        for _ in 0..len {
+            let Some((key, value)) = iter.next() else {
+                return Err(Error::custom(OBJECT_MODIFIED_DURING_ITERATION));
+            };
+            let Ok(key) = key.cast_exact::<PyString>() else {
                 return Err(Error::custom(KEY_MUST_BE_STR));
             };
-            let key_as_str = unicode_to_str(key).map_err(Error::custom)?;
+            let key_as_str = unicode_to_str(key.as_borrowed()).map_err(Error::custom)?;
             if unlikely(key_as_str.as_bytes()[0] == b'_') {
                 continue;
             }
-            items.push((key_as_str, value));
+            items.push((key, value));
         }
 
         if self.opts & SORT_KEYS != 0 {
-            items.sort_unstable_by(|a, b| a.0.cmp(b.0));
+            items.sort_unstable_by(|a, b| {
+                let a = unicode_to_str(a.0.as_borrowed()).unwrap();
+                let b = unicode_to_str(b.0.as_borrowed()).unwrap();
+                a.cmp(b)
+            });
         }
 
         serializer.serialize_map(items.len(), |map| {
             for (key, value) in items.iter() {
-                map.serialize_entry(key, &value)?;
+                let key_as_str = unicode_to_str(key.as_borrowed()).unwrap();
+                map.serialize_entry(key_as_str, &value.as_borrowed())?;
             }
             Ok(())
         })
@@ -133,31 +146,47 @@ impl<'a, 'py> PydanticModel<'a, 'py> {
     where
         W: WriteSlices,
     {
-        let iter = PyDictIter::new(dict).chain(PyDictIter::new(extra_dict));
-        let len = iter.size_hint().0;
+        let dict_len = dict.len();
+        let extra_dict_len = extra_dict.len();
+        let len = dict_len + extra_dict_len;
         if unlikely(len == 0) {
             return serializer.serialize_map(0, |_| Ok(()));
         }
-        let mut items: SmallVec<[(&str, Borrowed<'a, 'py, PyAny>); 8]> =
-            SmallVec::with_capacity(len);
-        for (key, value) in iter {
-            let Some(key) = cast_exact::<PyString>(key) else {
-                return Err(Error::custom(KEY_MUST_BE_STR));
-            };
-            let key_as_str = unicode_to_str(key).map_err(Error::custom)?;
-            if unlikely(key_as_str.as_bytes()[0] == b'_') {
-                continue;
+        let mut items: SmallVec<
+            [(
+                PyCollectionItem<'a, 'py, PyString>,
+                PyCollectionItem<'a, 'py, PyAny>,
+            ); 8],
+        > = SmallVec::with_capacity(len);
+        for (dict, len) in [(dict, dict_len), (extra_dict, extra_dict_len)] {
+            let mut iter = PyDictIter::new(dict);
+            for _ in 0..len {
+                let Some((key, value)) = iter.next() else {
+                    return Err(Error::custom(OBJECT_MODIFIED_DURING_ITERATION));
+                };
+                let Ok(key) = key.cast_exact::<PyString>() else {
+                    return Err(Error::custom(KEY_MUST_BE_STR));
+                };
+                let key_as_str = unicode_to_str(key.as_borrowed()).map_err(Error::custom)?;
+                if unlikely(key_as_str.as_bytes()[0] == b'_') {
+                    continue;
+                }
+                items.push((key, value));
             }
-            items.push((key_as_str, value));
         }
 
         if self.opts & SORT_KEYS != 0 {
-            items.sort_unstable_by(|a, b| a.0.cmp(b.0));
+            items.sort_unstable_by(|a, b| {
+                let a = unicode_to_str(a.0.as_borrowed()).unwrap();
+                let b = unicode_to_str(b.0.as_borrowed()).unwrap();
+                a.cmp(b)
+            });
         }
 
         serializer.serialize_map(items.len(), |map| {
             for (key, value) in items.iter() {
-                map.serialize_entry(key, &value)?;
+                let key_as_str = unicode_to_str(key.as_borrowed()).unwrap();
+                map.serialize_entry(key_as_str, &value.as_borrowed())?;
             }
             Ok(())
         })

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
+use crate::ffi::PyCollectionItem;
 use pyo3::ffi::*;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -17,7 +18,10 @@ impl<'a, 'py> PyDictIter<'a, 'py> {
 }
 
 impl<'a, 'py> Iterator for PyDictIter<'a, 'py> {
-    type Item = (Borrowed<'a, 'py, PyAny>, Borrowed<'a, 'py, PyAny>);
+    type Item = (
+        PyCollectionItem<'a, 'py, PyAny>,
+        PyCollectionItem<'a, 'py, PyAny>,
+    );
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -26,17 +30,12 @@ impl<'a, 'py> Iterator for PyDictIter<'a, 'py> {
         unsafe {
             if PyDict_Next(self.obj.as_ptr(), &mut self.pos, &mut key, &mut value) == 1 {
                 Some((
-                    Borrowed::from_ptr(self.obj.py(), key),
-                    Borrowed::from_ptr(self.obj.py(), value),
+                    PyCollectionItem::from_borrowed(Borrowed::from_ptr(self.obj.py(), key)),
+                    PyCollectionItem::from_borrowed(Borrowed::from_ptr(self.obj.py(), value)),
                 ))
             } else {
                 None
             }
         }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.obj.len();
-        (len, Some(len))
     }
 }

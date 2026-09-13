@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
 mod buffer;
+mod collection;
 mod dict;
 #[cfg(Py_3_15)]
 mod frozendict;
@@ -8,14 +9,17 @@ mod frozendict;
 #[cfg_attr(not(any(PyPy, GraalPy)), path = "cpython/mod.rs")]
 mod impl_;
 mod int;
+mod list;
 mod object;
 mod unicode;
 
 pub use buffer::*;
+pub use collection::*;
 pub use dict::*;
 #[cfg(Py_3_15)]
 pub use frozendict::*;
 pub use impl_::*;
 pub use int::*;
+pub use list::*;
 pub use object::*;
 pub use unicode::*;

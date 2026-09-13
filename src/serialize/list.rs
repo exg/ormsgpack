@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
-use crate::ffi::BorrowedWithType;
+use crate::exc::OBJECT_MODIFIED_DURING_ITERATION;
+use crate::ffi::{pylist_get_item, BorrowedWithType};
 use crate::io::WriteSlices;
 use crate::serialize::Error;
 use crate::serialize::{Serialize, Serializer};
@@ -41,11 +42,10 @@ impl Serialize for List<'_, '_> {
             let len = self.obj.len();
             serializer.serialize_seq(len, |seq| {
                 for i in 0..len {
-                    let item = unsafe {
-                        let item = pyo3::ffi::PyList_GET_ITEM(self.obj.as_ptr(), i as isize);
-                        Borrowed::from_ptr(self.obj.py(), item)
+                    let Some(item) = pylist_get_item(self.obj, i) else {
+                        return Err(Error::custom(OBJECT_MODIFIED_DURING_ITERATION));
                     };
-                    seq.serialize_element(&item)?;
+                    seq.serialize_element(&item.as_borrowed())?;
                 }
                 Ok(())
             })
