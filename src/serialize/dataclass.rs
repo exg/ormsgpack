@@ -109,42 +109,49 @@ impl Serialize for Dataclass<'_, '_> {
             }
         };
 
-        let mut items: SmallVec<[(&str, Bound<'_, PyAny>); 8]> = SmallVec::with_capacity(len);
-        for (key, field) in PyDictIter::new(fields.as_borrowed()) {
-            let Some(key) = cast_exact::<PyString>(key) else {
+        let mut items: SmallVec<[(PyCollectionItem<'_, '_, PyString>, Bound<'_, PyAny>); 8]> =
+            SmallVec::with_capacity(len);
+        let mut iter = PyDictIter::new(fields.as_borrowed());
+        for _ in 0..len {
+            let Some((key, field)) = iter.next() else {
+                return Err(serde::ser::Error::custom(OBJECT_MODIFIED_DURING_ITERATION));
+            };
+            let Ok(key) = key.cast_exact::<PyString>() else {
                 return Err(serde::ser::Error::custom(KEY_MUST_BE_STR));
             };
-            let key_as_str = unicode_to_str(key).map_err(serde::ser::Error::custom)?;
+            let key_as_str =
+                unicode_to_str(key.as_borrowed()).map_err(serde::ser::Error::custom)?;
             if key_as_str.as_bytes()[0] == b'_' {
                 continue;
             }
 
             if let Some(dict) = &maybe_dict {
                 if let Some(value) = dict
-                    .get_item(key)
+                    .get_item(key.as_borrowed())
                     .map_err(|e| pyerr_to_serde(self.obj.py(), e))?
                 {
-                    items.push((key_as_str, value));
+                    items.push((key, value));
                 } else if let Some(value) = self
-                    .get_field_value(key, field)
+                    .get_field_value(key.as_borrowed(), field.as_borrowed())
                     .map_err(|e| pyerr_to_serde(self.obj.py(), e))?
                 {
-                    items.push((key_as_str, value));
+                    items.push((key, value));
                 }
             } else {
                 if let Some(value) = self
-                    .get_field_value(key, field)
+                    .get_field_value(key.as_borrowed(), field.as_borrowed())
                     .map_err(|e| pyerr_to_serde(self.obj.py(), e))?
                 {
-                    items.push((key_as_str, value));
+                    items.push((key, value));
                 }
             }
         }
 
         let mut map = serializer.serialize_map(Some(items.len()))?;
         for (key, value) in items.iter() {
+            let key_as_str = unicode_to_str(key.as_borrowed()).unwrap();
             let pyvalue = PyObject::new(value.as_borrowed(), self.context);
-            map.serialize_key(key).unwrap();
+            map.serialize_key(key_as_str).unwrap();
             map.serialize_value(&pyvalue)?
         }
         map.end()

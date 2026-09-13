@@ -69,3 +69,10 @@ borrowed rather than strong references to items in mutable collections, avoiding
 reference-count operations, and reads `bytearray` objects without copying them.
 Reference-count operations are particularly expensive on free-threaded builds because PyO3
 delegates them to CPython rather than implementing the logic inline.
+
+Source builds can enable the `hardened` Cargo feature to use strong references to
+collection items, at the cost of some performance. The contract still applies. For
+example:
+```sh
+maturin build --features hardened
+```
