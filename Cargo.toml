@@ -20,6 +20,7 @@ crate-type = ["cdylib"]
 
 [features]
 default = []
+hardened = []
 
 [dependencies]
 ahash = { version = "0.8", default-features = false }
