@@ -30,7 +30,7 @@ impl Serialize for Str<'_, '_> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         match unicode_to_str(self.obj) {
             Ok(val) => serializer.serialize_str(val),
@@ -69,7 +69,7 @@ impl Serialize for StrSubclass<'_, '_> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         match unicode_to_str_via_ffi(self.obj) {
             Ok(val) => serializer.serialize_str(val),

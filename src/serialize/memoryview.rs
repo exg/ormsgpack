@@ -27,7 +27,7 @@ impl Serialize for MemoryView<'_, '_> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         if let Some(buffer) = Buffer::get(self.obj) {
             serializer.serialize_bytes(buffer.as_bytes())

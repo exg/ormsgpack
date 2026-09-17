@@ -22,7 +22,7 @@ impl<'a, 'py> Tuple<'a, 'py> {
 
 impl Serialize for Tuple<'_, '_> {
     #[inline(never)]
-    fn serialize_as<const KEY: bool, W: WriteSlices>(
+    fn serialize_as<const KEY: bool, W: WriteSlices + AsMut<[u8]>>(
         &self,
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error> {

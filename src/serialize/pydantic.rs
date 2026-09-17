@@ -63,7 +63,7 @@ impl Serialize for PydanticModel<'_, '_> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let state = self.state;
         let Some(dict) = self
@@ -80,8 +80,10 @@ impl Serialize for PydanticModel<'_, '_> {
             .and_then(cast_into_exact::<PyDict>)
         {
             self.serialize_with_extra(serializer, dict.as_borrowed(), extra_dict.as_borrowed())
-        } else {
+        } else if self.opts & SORT_KEYS == 0 {
             self.serialize_with_no_extra(serializer, dict.as_borrowed())
+        } else {
+            self.serialize_with_no_extra_and_sorted_keys(serializer, dict.as_borrowed())
         }
     }
 }
@@ -93,7 +95,35 @@ impl<'a, 'py> PydanticModel<'a, 'py> {
         dict: Borrowed<'a, 'py, PyDict>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
+    {
+        let len = dict.len();
+        if unlikely(len == 0) {
+            return serializer.serialize_map(0, |_| Ok(()));
+        }
+
+        serializer.serialize_map_with_upper_bound(len, |map| {
+            for (key, value) in PyDictIter::new(dict) {
+                let Some(key) = cast_exact::<PyString>(key) else {
+                    return Err(Error::custom(KEY_MUST_BE_STR));
+                };
+                let key_as_str = unicode_to_str(key).map_err(Error::custom)?;
+                if unlikely(key_as_str.as_bytes()[0] == b'_') {
+                    continue;
+                }
+                map.serialize_entry(key_as_str, &value)?;
+            }
+            Ok(())
+        })
+    }
+
+    fn serialize_with_no_extra_and_sorted_keys<W>(
+        &self,
+        serializer: &mut Serializer<'_, '_, W>,
+        dict: Borrowed<'a, 'py, PyDict>,
+    ) -> Result<(), Error>
+    where
+        W: WriteSlices + AsMut<[u8]>,
     {
         let len = dict.len();
         if unlikely(len == 0) {
@@ -112,9 +142,7 @@ impl<'a, 'py> PydanticModel<'a, 'py> {
             items.push((key_as_str, value));
         }
 
-        if self.opts & SORT_KEYS != 0 {
-            items.sort_unstable_by(|a, b| a.0.cmp(b.0));
-        }
+        items.sort_unstable_by(|a, b| a.0.cmp(b.0));
 
         serializer.serialize_map(items.len(), |map| {
             for (key, value) in items.iter() {
@@ -131,7 +159,7 @@ impl<'a, 'py> PydanticModel<'a, 'py> {
         extra_dict: Borrowed<'a, 'py, PyDict>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let iter = PyDictIter::new(dict).chain(PyDictIter::new(extra_dict));
         let len = iter.size_hint().0;

@@ -175,7 +175,7 @@ impl Serialize for NaiveDateTime {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let mut cursor = std::io::Cursor::new([0u8; 32]);
         DateTimeLike::write_rfc3339(self, &mut cursor, self.opts).unwrap();

@@ -102,3 +102,12 @@ where
         (**self).write_slices(bufs)
     }
 }
+
+impl WriteSlices for std::io::Cursor<&mut [u8]> {
+    fn write_slices<const N: usize>(&mut self, bufs: [&[u8]; N]) -> Result<(), std::io::Error> {
+        for buf in bufs {
+            std::io::Write::write_all(self, buf)?;
+        }
+        Ok(())
+    }
+}

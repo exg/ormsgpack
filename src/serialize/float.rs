@@ -27,7 +27,7 @@ impl Serialize for Float<'_, '_> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let value = self.obj.value();
         serializer.serialize_f64(value)

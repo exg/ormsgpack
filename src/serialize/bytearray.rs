@@ -28,7 +28,7 @@ impl Serialize for ByteArray<'_, '_> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         with_critical_section(&self.obj, || {
             let contents = unsafe { self.obj.as_bytes() };

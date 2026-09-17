@@ -45,7 +45,7 @@ impl Serialize for Fragment<'_, '_> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let py = self.obj.py();
         let fragment = self.obj.get();

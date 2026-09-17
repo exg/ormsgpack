@@ -41,7 +41,7 @@ impl Serialize for FrozenDict<'_, '_> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         if unlikely(self.obj.len() == 0) {
             serializer.serialize_map(0, |_| Ok(()))
@@ -67,7 +67,7 @@ impl<'a, 'py> FrozenDict<'a, 'py> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let len = self.obj.len();
         serializer.serialize_map(len, |map| {
@@ -88,7 +88,7 @@ impl<'a, 'py> FrozenDict<'a, 'py> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let len = self.obj.len();
         let mut items: SmallVec<[(&str, Borrowed<'a, 'py, PyAny>); 8]> =
@@ -117,7 +117,7 @@ impl<'a, 'py> FrozenDict<'a, 'py> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let len = self.obj.len();
         serializer.serialize_map(len, |map| {

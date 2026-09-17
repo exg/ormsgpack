@@ -184,7 +184,7 @@ impl Serialize for NumpyArrayData {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         serializer.serialize_seq(self.len, |seq| {
             match self.kind {
@@ -300,7 +300,7 @@ impl Serialize for NumpyArrayNode {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         match self {
             Self::Internal(children) => serializer.serialize_seq(children.len(), |seq| {
@@ -434,7 +434,7 @@ impl Serialize for NumpyArray<'_> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         self.root.serialize(serializer)
     }
@@ -745,7 +745,7 @@ macro_rules! define_numpy_type {
                 serializer: &mut Serializer<'_, '_, W>,
             ) -> Result<(), Error>
             where
-                W: WriteSlices,
+                W: WriteSlices + AsMut<[u8]>,
             {
                 let value = unsafe { (*self.obj.as_ptr().cast::<$object_name>()).value };
                 value.serialize(serializer)
@@ -804,7 +804,7 @@ impl Serialize for NumpyDatetime64<'_, '_> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let Some(descr) = get_dtype_descr(self.obj, self.state) else {
             return Err(Error::custom("numpy object is malformed"));
@@ -847,7 +847,7 @@ impl Serialize for NumpyFloat16<'_, '_> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let value = unsafe { (*self.obj.as_ptr().cast::<NumpyFloat16Object>()).value };
         half::f16::from_bits(value).to_f32().serialize(serializer)

@@ -27,7 +27,7 @@ impl Serialize for Bool<'_, '_> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let value = self.obj.is_true();
         serializer.serialize_bool(value)

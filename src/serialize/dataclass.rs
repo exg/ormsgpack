@@ -10,8 +10,6 @@ use crate::serialize::{Serialize, Serializer};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString};
 
-use smallvec::SmallVec;
-
 pub struct State {
     field_type: Py<PyAny>,
     dict_str: Py<PyString>,
@@ -76,7 +74,7 @@ impl Serialize for Dataclass<'_, '_> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let state = self.state;
         let Some(fields) = self
@@ -105,32 +103,27 @@ impl Serialize for Dataclass<'_, '_> {
             }
         };
 
-        let mut items: SmallVec<[(&str, Bound<'_, PyAny>); 8]> = SmallVec::with_capacity(len);
-        for (key, field) in PyDictIter::new(fields.as_borrowed()) {
-            let Some(key) = cast_exact::<PyString>(key) else {
-                return Err(Error::custom(KEY_MUST_BE_STR));
-            };
-            let key_as_str = unicode_to_str(key).map_err(Error::custom)?;
-            if key_as_str.as_bytes()[0] == b'_' {
-                continue;
-            }
-
-            if let Some(dict) = &maybe_dict {
-                if let Some(value) = dict.get_item(key)? {
-                    items.push((key_as_str, value));
-                } else if let Some(value) = self.get_field_value(key, field)? {
-                    items.push((key_as_str, value));
+        serializer.serialize_map_with_upper_bound(len, |map| {
+            for (key, field) in PyDictIter::new(fields.as_borrowed()) {
+                let Some(key) = cast_exact::<PyString>(key) else {
+                    return Err(Error::custom(KEY_MUST_BE_STR));
+                };
+                let key_as_str = unicode_to_str(key).map_err(Error::custom)?;
+                if key_as_str.as_bytes()[0] == b'_' {
+                    continue;
                 }
-            } else {
-                if let Some(value) = self.get_field_value(key, field)? {
-                    items.push((key_as_str, value));
-                }
-            }
-        }
 
-        serializer.serialize_map(items.len(), |map| {
-            for (key, value) in items.iter() {
-                map.serialize_entry(key, &value.as_borrowed())?
+                if let Some(dict) = &maybe_dict {
+                    if let Some(value) = dict.get_item(key)? {
+                        map.serialize_entry(key_as_str, &value.as_borrowed())?;
+                    } else if let Some(value) = self.get_field_value(key, field)? {
+                        map.serialize_entry(key_as_str, &value.as_borrowed())?;
+                    }
+                } else {
+                    if let Some(value) = self.get_field_value(key, field)? {
+                        map.serialize_entry(key_as_str, &value.as_borrowed())?;
+                    }
+                }
             }
             Ok(())
         })

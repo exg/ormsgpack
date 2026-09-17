@@ -42,7 +42,7 @@ impl Serialize for Dict<'_, '_> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         with_critical_section(&self.obj, || {
             if unlikely(self.obj.len() == 0) {
@@ -70,7 +70,7 @@ impl<'a, 'py> Dict<'a, 'py> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let len = self.obj.len();
         serializer.serialize_map(len, |map| {
@@ -91,7 +91,7 @@ impl<'a, 'py> Dict<'a, 'py> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let len = self.obj.len();
         let mut items: SmallVec<[(&str, Borrowed<'a, 'py, PyAny>); 8]> =
@@ -120,7 +120,7 @@ impl<'a, 'py> Dict<'a, 'py> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let len = self.obj.len();
         serializer.serialize_map(len, |map| {

@@ -27,7 +27,7 @@ impl Serialize for Bytes<'_, '_> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let contents = self.obj.as_bytes();
         serializer.serialize_bytes(contents)

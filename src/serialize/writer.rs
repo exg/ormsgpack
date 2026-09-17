@@ -104,3 +104,9 @@ impl WriteSlices for BytesWriter {
         Ok(())
     }
 }
+
+impl AsMut<[u8]> for BytesWriter {
+    fn as_mut(&mut self) -> &mut [u8] {
+        unsafe { std::slice::from_raw_parts_mut(self.data, self.len) }
+    }
+}

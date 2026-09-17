@@ -30,6 +30,7 @@ use crate::serialize::writer::*;
 use crate::util::unlikely;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
+use std::io::{Cursor, Seek, SeekFrom};
 
 #[derive(Debug)]
 pub enum Error {
@@ -99,7 +100,7 @@ pub struct Serializer<'a, 'py, W> {
     recursion: u8,
 }
 
-impl<'a, 'py, W: WriteSlices> Serializer<'a, 'py, W> {
+impl<'a, 'py, W: WriteSlices + AsMut<[u8]>> Serializer<'a, 'py, W> {
     pub fn new(
         py: Python<'py>,
         writer: W,
@@ -470,11 +471,41 @@ impl<'a, 'py, W: WriteSlices> Serializer<'a, 'py, W> {
         if unlikely(self.recursion == msgpack::RECURSION_LIMIT) {
             return Err(Error::custom(RECURSION_LIMIT_REACHED));
         }
-        msgpack::write_map_len(&mut self.writer, len)?;
+        msgpack::write_map_len(&mut self.writer, len, len)?;
         self.recursion += 1;
         let result = serialize(&mut Map { serializer: self });
         self.recursion -= 1;
         result
+    }
+
+    pub fn serialize_map_with_upper_bound<F>(
+        &mut self,
+        max_len: usize,
+        serialize: F,
+    ) -> Result<(), Error>
+    where
+        F: FnOnce(&mut BoundedMap<'_, 'a, 'py, W>) -> Result<(), Error>,
+    {
+        if unlikely(self.recursion == msgpack::RECURSION_LIMIT) {
+            return Err(Error::custom(RECURSION_LIMIT_REACHED));
+        }
+        let offset = self.writer.as_mut().len();
+        msgpack::write_map_len(&mut self.writer, max_len, max_len)?;
+        self.recursion += 1;
+        let mut map = BoundedMap {
+            serializer: self,
+            len: 0,
+        };
+        let result = serialize(&mut map);
+        let len = map.len;
+        self.recursion -= 1;
+        result?;
+        if len < max_len {
+            let mut cursor = Cursor::new(self.writer.as_mut());
+            cursor.seek(SeekFrom::Start(offset as u64))?;
+            msgpack::write_map_len(&mut cursor, len, max_len)?;
+        }
+        Ok(())
     }
 }
 
@@ -482,7 +513,7 @@ pub struct Sequence<'s, 'a, 'py, W> {
     serializer: &'s mut Serializer<'a, 'py, W>,
 }
 
-impl<W: WriteSlices> Sequence<'_, '_, '_, W> {
+impl<W: WriteSlices + AsMut<[u8]>> Sequence<'_, '_, '_, W> {
     pub fn serialize_element_as<const KEY: bool, T: ?Sized + Serialize>(
         &mut self,
         value: &T,
@@ -499,7 +530,7 @@ pub struct Map<'s, 'a, 'py, W> {
     serializer: &'s mut Serializer<'a, 'py, W>,
 }
 
-impl<W: WriteSlices> Map<'_, '_, '_, W> {
+impl<W: WriteSlices + AsMut<[u8]>> Map<'_, '_, '_, W> {
     pub fn serialize_entry<K: ?Sized + Serialize, V: ?Sized + Serialize>(
         &mut self,
         key: &K,
@@ -510,20 +541,38 @@ impl<W: WriteSlices> Map<'_, '_, '_, W> {
     }
 }
 
+pub struct BoundedMap<'s, 'a, 'py, W> {
+    serializer: &'s mut Serializer<'a, 'py, W>,
+    len: usize,
+}
+
+impl<W: WriteSlices + AsMut<[u8]>> BoundedMap<'_, '_, '_, W> {
+    pub fn serialize_entry<K: ?Sized + Serialize, V: ?Sized + Serialize>(
+        &mut self,
+        key: &K,
+        value: &V,
+    ) -> Result<(), Error> {
+        key.serialize_key(self.serializer)?;
+        value.serialize(self.serializer)?;
+        self.len += 1;
+        Ok(())
+    }
+}
+
 pub trait Serialize {
-    fn serialize_as<const KEY: bool, W: WriteSlices>(
+    fn serialize_as<const KEY: bool, W: WriteSlices + AsMut<[u8]>>(
         &self,
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>;
 
-    fn serialize<W: WriteSlices>(
+    fn serialize<W: WriteSlices + AsMut<[u8]>>(
         &self,
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error> {
         self.serialize_as::<false, W>(serializer)
     }
 
-    fn serialize_key<W: WriteSlices>(
+    fn serialize_key<W: WriteSlices + AsMut<[u8]>>(
         &self,
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error> {
@@ -532,7 +581,7 @@ pub trait Serialize {
 }
 
 impl<T: ?Sized + Serialize> Serialize for &T {
-    fn serialize_as<const KEY: bool, W: WriteSlices>(
+    fn serialize_as<const KEY: bool, W: WriteSlices + AsMut<[u8]>>(
         &self,
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error> {
@@ -541,7 +590,7 @@ impl<T: ?Sized + Serialize> Serialize for &T {
 }
 
 impl Serialize for Borrowed<'_, '_, PyAny> {
-    fn serialize_as<const KEY: bool, W: WriteSlices>(
+    fn serialize_as<const KEY: bool, W: WriteSlices + AsMut<[u8]>>(
         &self,
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error> {
@@ -560,7 +609,7 @@ impl Serialize for Int {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         match self {
             Int::Signed(value) => serializer.serialize_i64(*value),
@@ -570,7 +619,7 @@ impl Serialize for Int {
 }
 
 impl Serialize for str {
-    fn serialize_as<const KEY: bool, W: WriteSlices>(
+    fn serialize_as<const KEY: bool, W: WriteSlices + AsMut<[u8]>>(
         &self,
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error> {
@@ -581,7 +630,7 @@ impl Serialize for str {
 macro_rules! impl_serialize {
     ($($ty:ty => $method:ident),* $(,)?) => {
         $(impl Serialize for $ty {
-            fn serialize_as<const KEY: bool, W: WriteSlices>(&self, serializer: &mut Serializer<'_, '_, W>) -> Result<(), Error> {
+            fn serialize_as<const KEY: bool, W: WriteSlices + AsMut<[u8]>>(&self, serializer: &mut Serializer<'_, '_, W>) -> Result<(), Error> {
                 serializer.$method((*self).into())
             }
         })*

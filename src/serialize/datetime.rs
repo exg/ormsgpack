@@ -73,7 +73,7 @@ impl Serialize for Date<'_, '_> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let mut cursor = std::io::Cursor::new([0u8; 32]);
         DateLike::write_rfc3339(self, &mut cursor).unwrap();
@@ -146,7 +146,7 @@ impl Serialize for Time<'_, '_> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let mut cursor = std::io::Cursor::new([0u8; 32]);
         TimeLike::write_rfc3339(self, &mut cursor, self.opts).unwrap();
@@ -292,7 +292,7 @@ impl Serialize for DateTime<'_, '_> {
         serializer: &mut Serializer<'_, '_, W>,
     ) -> Result<(), Error>
     where
-        W: WriteSlices,
+        W: WriteSlices + AsMut<[u8]>,
     {
         let mut cursor = std::io::Cursor::new([0u8; 32]);
         if self.opts & DATETIME_AS_TIMESTAMP_EXT != 0
