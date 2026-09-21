@@ -13,6 +13,9 @@ pub use int::*;
 pub use unicode::*;
 
 use pyo3::ffi::*;
+use std::ffi::CStr;
+use std::marker::PhantomData;
+use std::mem::ManuallyDrop;
 use std::ptr::NonNull;
 
 #[cold]
@@ -21,6 +24,229 @@ pub unsafe fn set_python_error(exception: *mut PyObject, msg: &str) {
     if !err_msg.is_null() {
         PyErr_SetObject(exception, err_msg);
         Py_DECREF(err_msg);
+    }
+}
+
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+pub struct BorrowedPyObject<'a>(NonNull<PyObject>, PhantomData<&'a PyObject>);
+
+#[allow(dead_code)]
+impl<'a> BorrowedPyObject<'a> {
+    #[inline]
+    pub unsafe fn from_ptr(ptr: *mut PyObject) -> Option<Self> {
+        NonNull::new(ptr).map(|ptr| Self(ptr, PhantomData))
+    }
+
+    #[inline]
+    pub fn as_ptr(self) -> *mut PyObject {
+        self.0.as_ptr()
+    }
+
+    #[inline]
+    pub fn getattr(self, name: BorrowedPyObject<'_>) -> Option<OwnedPyObject> {
+        unsafe {
+            let result = OwnedPyObject::from_owned_ptr_or_opt(PyObject_GetAttr(
+                self.as_ptr(),
+                name.as_ptr(),
+            ));
+            if result.is_none() {
+                PyErr_Clear();
+            }
+            result
+        }
+    }
+
+    #[inline]
+    pub fn hasattr(self, name: BorrowedPyObject<'_>) -> bool {
+        unsafe { PyObject_HasAttr(self.as_ptr(), name.as_ptr()) == 1 }
+    }
+
+    #[inline]
+    pub fn call_one_arg(self, arg: BorrowedPyObject<'_>) -> Option<OwnedPyObject> {
+        let result = unsafe {
+            #[cfg(any(PyPy, GraalPy))]
+            {
+                PyObject_CallFunctionObjArgs(
+                    self.as_ptr(),
+                    arg.as_ptr(),
+                    std::ptr::null_mut::<PyObject>(),
+                )
+            }
+            #[cfg(not(any(PyPy, GraalPy)))]
+            {
+                PyObject_CallOneArg(self.as_ptr(), arg.as_ptr())
+            }
+        };
+        unsafe { OwnedPyObject::from_owned_ptr_or_opt(result) }
+    }
+
+    #[inline]
+    pub fn call_two_args(
+        self,
+        arg1: BorrowedPyObject<'_>,
+        arg2: BorrowedPyObject<'_>,
+    ) -> Option<OwnedPyObject> {
+        unsafe {
+            OwnedPyObject::from_owned_ptr_or_opt(PyObject_CallFunctionObjArgs(
+                self.as_ptr(),
+                arg1.as_ptr(),
+                arg2.as_ptr(),
+                std::ptr::null_mut::<PyObject>(),
+            ))
+        }
+    }
+
+    #[inline]
+    pub fn call_method_no_args(self, name: BorrowedPyObject<'_>) -> Option<OwnedPyObject> {
+        let result = unsafe {
+            #[cfg(any(PyPy, GraalPy))]
+            {
+                PyObject_CallMethodObjArgs(
+                    self.as_ptr(),
+                    name.as_ptr(),
+                    std::ptr::null_mut::<PyObject>(),
+                )
+            }
+            #[cfg(not(any(PyPy, GraalPy)))]
+            {
+                PyObject_CallMethodNoArgs(self.as_ptr(), name.as_ptr())
+            }
+        };
+        unsafe { OwnedPyObject::from_owned_ptr_or_opt(result) }
+    }
+
+    #[inline]
+    pub fn call_method_one_arg(
+        self,
+        name: BorrowedPyObject<'_>,
+        arg: BorrowedPyObject<'_>,
+    ) -> Option<OwnedPyObject> {
+        let result = unsafe {
+            #[cfg(any(PyPy, GraalPy))]
+            {
+                PyObject_CallMethodObjArgs(
+                    self.as_ptr(),
+                    name.as_ptr(),
+                    arg.as_ptr(),
+                    std::ptr::null_mut::<PyObject>(),
+                )
+            }
+            #[cfg(not(any(PyPy, GraalPy)))]
+            {
+                PyObject_CallMethodOneArg(self.as_ptr(), name.as_ptr(), arg.as_ptr())
+            }
+        };
+        unsafe { OwnedPyObject::from_owned_ptr_or_opt(result) }
+    }
+}
+
+#[repr(transparent)]
+#[allow(dead_code)]
+pub struct OwnedPyObject(NonNull<PyObject>);
+
+#[allow(dead_code)]
+impl OwnedPyObject {
+    #[inline]
+    #[track_caller]
+    pub unsafe fn from_owned_ptr(ptr: *mut PyObject) -> Self {
+        Self(NonNull::new(ptr).expect("PyObject pointer is null"))
+    }
+
+    #[inline]
+    pub unsafe fn from_owned_ptr_or_opt(ptr: *mut PyObject) -> Option<Self> {
+        NonNull::new(ptr).map(Self)
+    }
+
+    #[inline]
+    pub unsafe fn from_borrowed_ptr(ptr: *mut PyObject) -> Option<Self> {
+        let ptr = NonNull::new(ptr)?;
+        Py_INCREF(ptr.as_ptr());
+        Some(Self(ptr))
+    }
+
+    #[inline]
+    pub fn getattr(&self, name: BorrowedPyObject<'_>) -> Option<Self> {
+        self.as_borrowed().getattr(name)
+    }
+
+    #[inline]
+    pub fn hasattr(&self, name: BorrowedPyObject<'_>) -> bool {
+        self.as_borrowed().hasattr(name)
+    }
+
+    #[inline]
+    pub fn call_one_arg(&self, arg: BorrowedPyObject<'_>) -> Option<Self> {
+        self.as_borrowed().call_one_arg(arg)
+    }
+
+    #[inline]
+    pub fn call_two_args(
+        &self,
+        arg1: BorrowedPyObject<'_>,
+        arg2: BorrowedPyObject<'_>,
+    ) -> Option<Self> {
+        self.as_borrowed().call_two_args(arg1, arg2)
+    }
+
+    #[inline]
+    pub fn call_method_no_args(&self, name: BorrowedPyObject<'_>) -> Option<Self> {
+        self.as_borrowed().call_method_no_args(name)
+    }
+
+    #[inline]
+    pub fn call_method_one_arg(
+        &self,
+        name: BorrowedPyObject<'_>,
+        arg: BorrowedPyObject<'_>,
+    ) -> Option<Self> {
+        self.as_borrowed().call_method_one_arg(name, arg)
+    }
+
+    #[inline]
+    pub fn getattr_string(&self, name: &CStr) -> Option<Self> {
+        unsafe { Self::from_owned_ptr_or_opt(PyObject_GetAttrString(self.as_ptr(), name.as_ptr())) }
+    }
+
+    #[inline]
+    pub fn try_import(name: &CStr) -> Option<Self> {
+        unsafe { Self::from_owned_ptr_or_opt(PyImport_ImportModule(name.as_ptr())) }
+    }
+
+    #[inline]
+    pub fn try_intern(value: &CStr) -> Option<Self> {
+        unsafe { Self::from_owned_ptr_or_opt(PyUnicode_InternFromString(value.as_ptr())) }
+    }
+
+    #[inline]
+    pub fn as_borrowed(&self) -> BorrowedPyObject<'_> {
+        BorrowedPyObject(self.0, PhantomData)
+    }
+
+    #[inline]
+    pub fn as_ptr(&self) -> *mut PyObject {
+        self.0.as_ptr()
+    }
+
+    #[inline]
+    pub fn into_ptr(self) -> *mut PyObject {
+        ManuallyDrop::new(self).0.as_ptr()
+    }
+}
+
+impl Clone for OwnedPyObject {
+    #[inline]
+    fn clone(&self) -> Self {
+        unsafe { Py_INCREF(self.0.as_ptr()) }
+        Self(self.0)
+    }
+}
+
+impl Drop for OwnedPyObject {
+    #[inline]
+    fn drop(&mut self) {
+        unsafe { Py_DECREF(self.0.as_ptr()) }
     }
 }
 
