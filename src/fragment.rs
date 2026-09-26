@@ -1,7 +1,7 @@
 use crate::ffi::*;
 use crate::msgpack;
 use pyo3::ffi::*;
-use std::os::raw::{c_char, c_int, c_uint, c_void};
+use std::os::raw::{c_int, c_uint, c_void};
 use std::ptr::null_mut;
 
 #[repr(C)]
@@ -36,7 +36,7 @@ unsafe extern "C" fn fragment_new(
     match validator.validate() {
         Ok(()) => (),
         Err(err) => {
-            PyErr_SetString(PyExc_ValueError, err.to_string().as_ptr().cast::<c_char>());
+            set_python_error(PyExc_ValueError, &err.to_string());
             return null_mut();
         }
     }

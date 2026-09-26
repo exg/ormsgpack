@@ -162,12 +162,7 @@ pub unsafe extern "C" fn ormsgpack_exec(mptr: *mut PyObject) -> c_int {
 #[inline(never)]
 fn raise_unpackb_exception(state: *mut state::State, msg: &str) -> *mut PyObject {
     unsafe {
-        let err_msg =
-            PyUnicode_FromStringAndSize(msg.as_ptr().cast::<c_char>(), msg.len() as isize);
-        let args = PyTuple_New(1);
-        pytuple_set_item(args, 0, err_msg);
-        PyErr_SetObject((*state).MsgpackDecodeError, args);
-        Py_DECREF(args);
+        set_python_error((*state).MsgpackDecodeError, msg);
     };
     std::ptr::null_mut()
 }
@@ -176,10 +171,7 @@ fn raise_unpackb_exception(state: *mut state::State, msg: &str) -> *mut PyObject
 #[inline(never)]
 fn raise_packb_exception(state: *mut state::State, msg: &str) -> *mut PyObject {
     unsafe {
-        let err_msg =
-            PyUnicode_FromStringAndSize(msg.as_ptr().cast::<c_char>(), msg.len() as isize);
-        PyErr_SetObject((*state).MsgpackEncodeError, err_msg);
-        Py_DECREF(err_msg);
+        set_python_error((*state).MsgpackEncodeError, msg);
     };
     std::ptr::null_mut()
 }

@@ -15,6 +15,15 @@ pub use unicode::*;
 use pyo3::ffi::*;
 use std::ptr::NonNull;
 
+#[cold]
+pub unsafe fn set_python_error(exception: *mut PyObject, msg: &str) {
+    let err_msg = PyUnicode_FromStringAndSize(msg.as_ptr().cast(), msg.len() as isize);
+    if !err_msg.is_null() {
+        PyErr_SetObject(exception, err_msg);
+        Py_DECREF(err_msg);
+    }
+}
+
 #[inline(always)]
 pub unsafe fn pybytes_as_bytes(op: *mut PyObject) -> &'static [u8] {
     let buffer = pybytes_as_mut_u8(op);
