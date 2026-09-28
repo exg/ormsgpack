@@ -66,14 +66,12 @@ impl<'a, 'py> PyObject<'a, 'py> {
     where
         S: Serializer,
     {
-        let obj = self
+        let call = self
             .context
             .default
-            .enter_call(self.obj)
+            .call(self.obj)
             .map_err(serde::ser::Error::custom)?;
-        let res = PyObject::new(obj.as_borrowed(), self.context).serialize(serializer);
-        self.context.default.leave_call();
-        res
+        PyObject::new(call.result().as_borrowed(), self.context).serialize(serializer)
     }
 
     #[inline(never)]
