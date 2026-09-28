@@ -27,6 +27,25 @@ pub struct DefaultHook<'a, 'py> {
     recursion: Cell<u8>,
 }
 
+pub struct DefaultHookCall<'h, 'a, 'py> {
+    hook: &'h DefaultHook<'a, 'py>,
+    result: Option<Bound<'py, PyAny>>,
+}
+
+impl DefaultHookCall<'_, '_, '_> {
+    pub fn result(&self) -> &Bound<'_, PyAny> {
+        self.result.as_ref().unwrap()
+    }
+}
+
+impl Drop for DefaultHookCall<'_, '_, '_> {
+    fn drop(&mut self) {
+        drop(self.result.take());
+        let recursion = self.hook.recursion.get();
+        self.hook.recursion.set(recursion - 1);
+    }
+}
+
 impl<'a, 'py> DefaultHook<'a, 'py> {
     pub fn new(default: Option<Borrowed<'a, 'py, PyAny>>) -> Self {
         DefaultHook {
@@ -35,24 +54,27 @@ impl<'a, 'py> DefaultHook<'a, 'py> {
         }
     }
 
-    pub fn enter_call(&self, obj: Borrowed<'_, 'py, PyAny>) -> Result<Bound<'py, PyAny>, Error> {
+    pub fn call(
+        &self,
+        obj: Borrowed<'_, 'py, PyAny>,
+    ) -> Result<DefaultHookCall<'_, 'a, 'py>, Error> {
         match &self.inner {
             Some(callable) => {
                 let recursion = self.recursion.get();
                 if unlikely(recursion == RECURSION_LIMIT) {
                     return Err(Error::RecursionLimitReached);
                 }
-                self.recursion.set(recursion + 1);
-                callable
-                    .call1((obj,))
-                    .map_err(|_| Error::InvalidType(get_type_name(obj)))
+                if let Ok(result) = callable.call1((obj,)) {
+                    self.recursion.set(recursion + 1);
+                    Ok(DefaultHookCall {
+                        hook: self,
+                        result: Some(result),
+                    })
+                } else {
+                    Err(Error::InvalidType(get_type_name(obj)))
+                }
             }
             None => Err(Error::InvalidType(get_type_name(obj))),
         }
-    }
-
-    pub fn leave_call(&self) {
-        let recursion = self.recursion.get();
-        self.recursion.set(recursion - 1);
     }
 }

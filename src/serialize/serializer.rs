@@ -118,10 +118,8 @@ impl<'a, 'py, W: WriteSlices> Serializer<'a, 'py, W> {
     }
 
     fn serialize_with_default_hook(&mut self, obj: Borrowed<'_, '_, PyAny>) -> Result<(), Error> {
-        let obj = self.default.enter_call(obj).map_err(Error::custom)?;
-        let res = self.serialize(obj.as_borrowed());
-        self.default.leave_call();
-        res
+        let call = self.default.call(obj).map_err(Error::custom)?;
+        self.serialize(call.result().as_borrowed())
     }
 
     #[inline(never)]
