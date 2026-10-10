@@ -47,6 +47,21 @@ def test(session: nox.Session) -> None:
     session.run("pytest")
 
 
+@nox.session(python="3.14")
+def check_leaks(session: nox.Session) -> None:
+    session.run_install(
+        "uv",
+        "sync",
+        "--frozen",
+        "--no-editable",
+        "--group=memray",
+        "--config-settings-package=ormsgpack:build-args=-- --cfg check_leaks",
+        f"--python={session.virtualenv.location}",
+        env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
+    )
+    session.run("pytest", "--check-leaks")
+
+
 @nox.session(python="3.13")
 def docs(session: nox.Session) -> None:
     session.run_install(
