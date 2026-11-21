@@ -10,6 +10,7 @@ const BUFFER_LENGTH: usize = 1024;
 
 pub struct BytesWriter {
     cap: usize,
+    pos: usize,
     len: usize,
     writer: *mut compat::PyBytesWriter,
     data: *mut u8,
@@ -21,6 +22,7 @@ impl BytesWriter {
             let writer = compat::PyBytesWriter_Create(BUFFER_LENGTH as isize);
             BytesWriter {
                 cap: BUFFER_LENGTH,
+                pos: 0,
                 len: 0,
                 writer: writer,
                 data: compat::PyBytesWriter_GetData(writer).cast::<u8>(),
@@ -37,7 +39,7 @@ impl BytesWriter {
     }
 
     #[inline]
-    pub fn resize(&mut self, len: usize) {
+    fn resize(&mut self, len: usize) {
         self.cap = len;
         unsafe {
             compat::PyBytesWriter_Resize(self.writer, len as isize);
@@ -61,18 +63,21 @@ impl BytesWriter {
 
     fn insert_slices<const N: usize>(&mut self, bufs: [&[u8]; N]) {
         let len: usize = bufs.iter().map(|b| b.len()).sum();
-        let new_len = self.len + len;
-        if new_len > self.cap {
-            self.grow(new_len);
+        let new_pos = self.pos + len;
+        if new_pos > self.cap {
+            self.grow(new_pos);
         }
-        let mut ptr = unsafe { self.data.add(self.len) };
-        for buf in bufs {
-            unsafe {
+        unsafe {
+            let mut ptr = self.data.add(self.pos);
+            for buf in bufs {
                 std::ptr::copy_nonoverlapping(buf.as_ptr(), ptr, buf.len());
                 ptr = ptr.add(buf.len());
-            };
+            }
+        };
+        self.pos = new_pos;
+        if new_pos > self.len {
+            self.len = new_pos;
         }
-        self.len = new_len;
     }
 }
 
@@ -83,17 +88,17 @@ impl Drop for BytesWriter {
 }
 
 impl std::io::Write for BytesWriter {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, std::io::Error> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.insert_slices([buf]);
         Ok(buf.len())
     }
 
-    fn write_all(&mut self, buf: &[u8]) -> Result<(), std::io::Error> {
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
         self.insert_slices([buf]);
         Ok(())
     }
 
-    fn flush(&mut self) -> Result<(), std::io::Error> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -102,5 +107,30 @@ impl WriteSlices for BytesWriter {
     fn write_slices<const N: usize>(&mut self, bufs: [&[u8]; N]) -> Result<(), std::io::Error> {
         self.insert_slices(bufs);
         Ok(())
+    }
+}
+
+impl std::io::Seek for BytesWriter {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        debug_assert!(size_of::<u64>() >= size_of::<usize>());
+        let (base_pos, offset) = match pos {
+            std::io::SeekFrom::Start(n) => {
+                self.pos = std::cmp::min(n, self.len as u64) as usize;
+                return Ok(self.pos as u64);
+            }
+            std::io::SeekFrom::End(n) => (self.len as u64, n),
+            std::io::SeekFrom::Current(n) => (self.pos as u64, n),
+        };
+        match base_pos.checked_add_signed(offset) {
+            Some(n) => {
+                self.pos = std::cmp::min(n, self.len as u64) as usize;
+                Ok(self.pos as u64)
+            }
+            None => Err(std::io::Error::from(std::io::ErrorKind::InvalidInput)),
+        }
+    }
+
+    fn stream_position(&mut self) -> std::io::Result<u64> {
+        Ok(self.pos as u64)
     }
 }
